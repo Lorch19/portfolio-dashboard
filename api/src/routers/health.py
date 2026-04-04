@@ -11,23 +11,28 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _collect_vps_metrics() -> dict:
-    return {
-        "cpu_percent": psutil.cpu_percent(interval=0.1),
-        "memory_percent": psutil.virtual_memory().percent,
-        "disk_percent": psutil.disk_usage("/").percent,
-    }
+def _collect_vps_metrics() -> tuple[dict | None, str | None]:
+    """Collect VPS metrics via psutil. Returns (metrics, error)."""
+    try:
+        return {
+            "cpu_percent": psutil.cpu_percent(interval=None),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage("/").percent,
+        }, None
+    except Exception as exc:
+        logger.exception("Error collecting VPS metrics")
+        return None, str(exc)
 
 
 def _query_supervisor() -> tuple[list | None, dict | None, list | None, str | None]:
     """Query supervisor DB. Returns (agents, heartbeats, alerts, error)."""
     path = settings.supervisor_db_path
     if not path:
-        return None, None, None, "supervisor_db_path not configured"
+        return None, None, None, "michael_supervisor.db not accessible: path not configured"
     try:
         conn = get_db_connection(path)
     except Exception as exc:
-        return None, None, None, str(exc)
+        return None, None, None, f"michael_supervisor.db not accessible: {exc}"
     try:
         agents = get_agent_statuses(conn)
         heartbeats = get_heartbeat_status(conn)
@@ -35,7 +40,7 @@ def _query_supervisor() -> tuple[list | None, dict | None, list | None, str | No
         return agents, heartbeats, alerts, None
     except Exception as exc:
         logger.exception("Error querying supervisor DB")
-        return None, None, None, str(exc)
+        return None, None, None, f"michael_supervisor.db not accessible: {exc}"
     finally:
         conn.close()
 
@@ -43,21 +48,17 @@ def _query_supervisor() -> tuple[list | None, dict | None, list | None, str | No
 @router.get("/api/health")
 def health():
     agents, heartbeats, alerts, db_error = _query_supervisor()
+    vps_metrics, vps_error = _collect_vps_metrics()
 
-    result: dict = {}
-
-    if db_error:
-        result["agents"] = None
-        result["agents_error"] = db_error
-        result["heartbeats"] = None
-        result["heartbeats_error"] = db_error
-        result["alerts"] = None
-        result["alerts_error"] = db_error
-    else:
-        result["agents"] = agents
-        result["heartbeats"] = heartbeats
-        result["alerts"] = alerts
-
-    result["vps_metrics"] = _collect_vps_metrics()
+    result: dict = {
+        "agents": agents,
+        "agents_error": db_error,
+        "heartbeats": heartbeats,
+        "heartbeats_error": db_error,
+        "alerts": alerts,
+        "alerts_error": db_error,
+        "vps_metrics": vps_metrics,
+        "vps_metrics_error": vps_error,
+    }
 
     return result

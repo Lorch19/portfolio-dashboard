@@ -1,6 +1,6 @@
 # Story 1.1: Scaffold Monorepo with Frontend and API Projects
 
-Status: in-progress
+Status: done
 
 ## Story
 

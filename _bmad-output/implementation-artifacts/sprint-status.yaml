@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-04T10:00:00Z
+last_updated: 2026-04-04
 project: portfolio-dashboard
 project_key: NOKEY
 tracking_system: file-system
@@ -44,9 +44,9 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   # Epic 1: Project Foundation & System Health Dashboard
   epic-1: in-progress
-  1-1-scaffold-monorepo-with-frontend-and-api-projects: in-progress
-  1-2-api-database-connections-and-health-endpoint: review
-  1-3-frontend-app-shell-with-tab-navigation: backlog
+  1-1-scaffold-monorepo-with-frontend-and-api-projects: done
+  1-2-api-database-connections-and-health-endpoint: done
+  1-3-frontend-app-shell-with-tab-navigation: ready-for-dev
   1-4-health-tab-agent-status-and-vps-metrics-display: backlog
   epic-1-retrospective: optional
 

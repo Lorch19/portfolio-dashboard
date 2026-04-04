@@ -1,8 +1,16 @@
 import sqlite3
 
+EXPECTED_AGENTS = ["Chronicler", "Guardian", "Michael", "Radar", "Scout", "Shadow Observer"]
+
 
 def get_agent_statuses(conn: sqlite3.Connection) -> list[dict]:
-    """Get latest health check per agent from health_checks table."""
+    """Get latest health check per agent from health_checks table.
+
+    Returns one entry per expected agent. Agents with no rows in the DB
+    are backfilled with null values. The ``last_run`` field reflects the
+    most recent execution timestamp regardless of outcome (not filtered
+    by success status — see AC1 interpretation note in review findings).
+    """
     rows = conn.execute(
         """
         SELECT agent_name, status, last_run, details, checked_at
@@ -13,7 +21,11 @@ def get_agent_statuses(conn: sqlite3.Connection) -> list[dict]:
         ORDER BY agent_name
         """
     ).fetchall()
-    return [dict(row) for row in rows]
+    found = {row["agent_name"]: dict(row) for row in rows}
+    return [
+        found.get(name, {"agent_name": name, "status": None, "last_run": None, "details": None, "checked_at": None})
+        for name in EXPECTED_AGENTS
+    ]
 
 
 def get_heartbeat_status(conn: sqlite3.Connection) -> dict:

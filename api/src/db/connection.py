@@ -1,4 +1,5 @@
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 from src.config import settings
@@ -11,7 +12,7 @@ def get_db_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def get_portfolio_db() -> sqlite3.Connection:
+def get_portfolio_db() -> Generator[sqlite3.Connection, None, None]:
     """FastAPI dependency: read-only connection to portfolio.db."""
     path = settings.portfolio_db_path
     if not path or not Path(path).exists():
@@ -23,7 +24,7 @@ def get_portfolio_db() -> sqlite3.Connection:
         conn.close()
 
 
-def get_supervisor_db() -> sqlite3.Connection:
+def get_supervisor_db() -> Generator[sqlite3.Connection, None, None]:
     """FastAPI dependency: read-only connection to michael_supervisor.db."""
     path = settings.supervisor_db_path
     if not path or not Path(path).exists():

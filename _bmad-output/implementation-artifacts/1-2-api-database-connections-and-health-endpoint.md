@@ -1,6 +1,6 @@
 # Story 1.2: API Database Connections and Health Endpoint
 
-Status: review
+Status: done
 
 ## Story
 
@@ -254,3 +254,18 @@ No issues encountered. All tests passed on first run.
 - api/tests/test_supervisor_queries.py (new)
 - api/tests/test_health.py (new)
 - api/tests/test_verification.py (new)
+
+### Review Findings
+
+- [x] [Review][Decision] Health router bypasses FastAPI DI for DB connections — Accepted: intentional bypass for graceful degradation. Spec deviation acknowledged.
+- [x] [Review][Patch] AC1: field is `last_run` (most recent run), not "last successful run" — Docstring updated with AC interpretation note. [supervisor.py:5-16]
+- [x] [Review][Decision] AC1: disk metric sourced from psutil only — Accepted: psutil provides real-time data; health_checks may not store disk metrics. Keep psutil-only.
+- [x] [Review][Patch] Enforce all 6 named agents in response with null backfill — Added EXPECTED_AGENTS list and backfill logic in `get_agent_statuses`. [supervisor.py:5-16]
+- [x] [Review][Patch] `psutil.cpu_percent(interval=0.1)` blocks threadpool 100ms per request — Changed to `interval=None`. [health.py:16]
+- [x] [Review][Patch] `_collect_vps_metrics` has no error handling — Wrapped in try/except, returns `(metrics, error)` tuple with `vps_metrics_error` key. [health.py:14-26]
+- [x] [Review][Patch] Successful response omits `_error` keys — Response now always includes all `_error` keys (null when no error). [health.py:53-64]
+- [x] [Review][Patch] Generator type annotation `-> sqlite3.Connection` incorrect — Fixed to `-> Generator[sqlite3.Connection, None, None]`. [connection.py:16,30]
+- [x] [Review][Patch] Error message format differs from spec — Aligned to `"michael_supervisor.db not accessible: ..."` pattern. [health.py:33,38,47]
+- [x] [Review][Defer] f-string in sqlite3 URI fragile with special path chars — `f"file:{db_path}?mode=ro"` would break on paths with `?`, `#`, `%`. Low risk since paths come from env vars. [connection.py:9] — deferred, pre-existing config pattern
+- [x] [Review][Defer] `get_recent_alerts` limit parameter unbounded — No upper-bound validation. Not currently exposed to HTTP input. [supervisor.py:35] — deferred, not exposed to user input
+- [x] [Review][Defer] File paths disclosed in error messages — Absolute paths leak in error strings to API consumers. Acceptable for internal dashboard. [connection.py:18,31] — deferred, internal-only API
