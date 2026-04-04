@@ -1,9 +1,34 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
+from src.routers.health import router as health_router
 
-app = FastAPI(title="Portfolio Dashboard API")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Validate DB paths at startup
+    for label, path in [
+        ("portfolio.db", settings.portfolio_db_path),
+        ("michael_supervisor.db", settings.supervisor_db_path),
+    ]:
+        if not path:
+            logger.warning("%s path not configured", label)
+        elif not Path(path).exists():
+            logger.warning("%s not found at %s", label, path)
+        else:
+            logger.info("%s connected: %s", label, path)
+    yield
+
+
+app = FastAPI(title="Portfolio Dashboard API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -13,6 +38,9 @@ app.add_middleware(
 )
 
 
+app.include_router(health_router)
+
+
 @app.get("/")
-def health_check():
+def root_ping():
     return {"status": "ok"}
