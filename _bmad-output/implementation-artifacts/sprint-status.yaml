@@ -1,0 +1,97 @@
+# generated: 2026-04-04
+# last_updated: 2026-04-04
+# project: portfolio-dashboard
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-04
+last_updated: 2026-04-04
+project: portfolio-dashboard
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & System Health Dashboard
+  epic-1: in-progress
+  1-1-scaffold-monorepo-with-frontend-and-api-projects: review
+  1-2-api-database-connections-and-health-endpoint: backlog
+  1-3-frontend-app-shell-with-tab-navigation: backlog
+  1-4-health-tab-agent-status-and-vps-metrics-display: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Supervisor & Pipeline Oversight
+  epic-2: backlog
+  2-1-supervisor-api-endpoint: backlog
+  2-2-supervisor-tab-ui: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Decision Funnel Visualization
+  epic-3: backlog
+  3-1-funnel-api-endpoint: backlog
+  3-2-funnel-tab-drop-off-visualization-and-drill-down: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Holdings & Position Monitoring
+  epic-4: backlog
+  4-1-holdings-api-endpoint: backlog
+  4-2-holdings-tab-positions-table-with-pnl-and-risk-status: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Performance & Prediction Accuracy
+  epic-5: backlog
+  5-1-performance-api-endpoint: backlog
+  5-2-performance-tab-portfolio-pnl-and-benchmark-charts: backlog
+  5-3-performance-tab-prediction-accuracy-and-arena-comparison: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Decision Reasoning & Counterfactuals
+  epic-6: backlog
+  6-1-decisions-api-endpoint: backlog
+  6-2-decisions-tab-reasoning-log-and-scoring-breakdown: backlog
+  6-3-decisions-tab-counterfactual-analysis: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Cost Tracking & ROI
+  epic-7: backlog
+  7-1-costs-api-endpoint: backlog
+  7-2-costs-tab-fee-breakdown-and-roi-display: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Debug & Pipeline Replay
+  epic-8: backlog
+  8-1-debug-api-endpoints: backlog
+  8-2-debug-tab-raw-event-bus-viewer: backlog
+  8-3-debug-tab-agent-logs-and-error-traces: backlog
+  8-4-debug-tab-pipeline-replay: backlog
+  epic-8-retrospective: optional
