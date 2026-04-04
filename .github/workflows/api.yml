@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
+        with:
+          python-version-file: api/.python-version
 
       - run: uv sync
 

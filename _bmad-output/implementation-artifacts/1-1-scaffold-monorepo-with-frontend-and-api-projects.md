@@ -1,6 +1,6 @@
 # Story 1.1: Scaffold Monorepo with Frontend and API Projects
 
-Status: review
+Status: in-progress
 
 ## Story
 
@@ -264,6 +264,23 @@ Claude Opus 4.6 (1M context)
 - `api/src/main.py` (new — FastAPI app with CORS and health check)
 - `api/src/config.py` (new — Settings class with env vars)
 
+### Review Findings
+
+- [x] [Review][Patch] Settings class reads env vars at import time — class-level attributes are frozen at first import; move to `__init__` [api/src/config.py]
+- [x] [Review][Patch] CORS_ORIGINS whitespace handling — `.split(",")` doesn't strip whitespace, producing invalid origins [api/src/config.py]
+- [x] [Review][Patch] API CI workflow missing explicit Python version pin [.github/workflows/api.yml]
+- [x] [Review][Patch] `shadcn` listed as runtime dependency instead of devDependency [frontend/package.json]
+- [x] [Review][Patch] Missing newline at end of index.css [frontend/src/index.css]
+- [x] [Review][Patch] No `type-check` script in package.json — CI runs `tsc --noEmit` directly instead of via script [frontend/package.json]
+- [x] [Review][Defer] Empty database paths silently accepted as defaults [api/src/config.py] — deferred, Story 1.2 handles DB connections
+- [x] [Review][Defer] Health check returns "ok" without dependency checks [api/src/main.py] — deferred, Story 1.2 adds DB health
+- [x] [Review][Defer] CI workflows don't trigger on shared root file changes [.github/workflows/] — deferred, scope beyond scaffolding
+- [x] [Review][Defer] API CI has no test or lint step beyond `uv sync` [.github/workflows/api.yml] — deferred, no tests exist yet
+- [x] [Review][Defer] Frontend ships Vite starter template as dead code (App.tsx, App.css) [frontend/src/] — deferred, replaced in Story 1.3
+- [x] [Review][Defer] CORS `allow_credentials` not set [api/src/main.py] — deferred, no auth in read-only API
+
 ## Change Log
 
 - 2026-04-04: Story 1.1 implemented — full monorepo scaffold with frontend (Vite+React+shadcn+TanStack) and API (FastAPI+uvicorn), CI/CD workflow stubs, verified end-to-end
+- 2026-04-04: Code review completed — 6 patch items, 6 deferred, 11 dismissed
+- 2026-04-04: All 6 review patch findings resolved
