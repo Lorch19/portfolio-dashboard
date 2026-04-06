@@ -9,38 +9,238 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SupervisorRouteImport } from './routes/supervisor'
+import { Route as PerformanceRouteImport } from './routes/performance'
+import { Route as HoldingsRouteImport } from './routes/holdings'
+import { Route as HealthRouteImport } from './routes/health'
+import { Route as FunnelRouteImport } from './routes/funnel'
+import { Route as DecisionsRouteImport } from './routes/decisions'
+import { Route as CostsRouteImport } from './routes/costs'
+import { Route as DebugRouteRouteImport } from './routes/debug/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DebugReplayRouteImport } from './routes/debug/replay'
+import { Route as DebugLogsRouteImport } from './routes/debug/logs'
+import { Route as DebugEventsRouteImport } from './routes/debug/events'
 
+const SupervisorRoute = SupervisorRouteImport.update({
+  id: '/supervisor',
+  path: '/supervisor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PerformanceRoute = PerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HoldingsRoute = HoldingsRouteImport.update({
+  id: '/holdings',
+  path: '/holdings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FunnelRoute = FunnelRouteImport.update({
+  id: '/funnel',
+  path: '/funnel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DecisionsRoute = DecisionsRouteImport.update({
+  id: '/decisions',
+  path: '/decisions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CostsRoute = CostsRouteImport.update({
+  id: '/costs',
+  path: '/costs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DebugRouteRoute = DebugRouteRouteImport.update({
+  id: '/debug',
+  path: '/debug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DebugReplayRoute = DebugReplayRouteImport.update({
+  id: '/replay',
+  path: '/replay',
+  getParentRoute: () => DebugRouteRoute,
+} as any)
+const DebugLogsRoute = DebugLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => DebugRouteRoute,
+} as any)
+const DebugEventsRoute = DebugEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => DebugRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/debug': typeof DebugRouteRouteWithChildren
+  '/costs': typeof CostsRoute
+  '/decisions': typeof DecisionsRoute
+  '/funnel': typeof FunnelRoute
+  '/health': typeof HealthRoute
+  '/holdings': typeof HoldingsRoute
+  '/performance': typeof PerformanceRoute
+  '/supervisor': typeof SupervisorRoute
+  '/debug/events': typeof DebugEventsRoute
+  '/debug/logs': typeof DebugLogsRoute
+  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/debug': typeof DebugRouteRouteWithChildren
+  '/costs': typeof CostsRoute
+  '/decisions': typeof DecisionsRoute
+  '/funnel': typeof FunnelRoute
+  '/health': typeof HealthRoute
+  '/holdings': typeof HoldingsRoute
+  '/performance': typeof PerformanceRoute
+  '/supervisor': typeof SupervisorRoute
+  '/debug/events': typeof DebugEventsRoute
+  '/debug/logs': typeof DebugLogsRoute
+  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/debug': typeof DebugRouteRouteWithChildren
+  '/costs': typeof CostsRoute
+  '/decisions': typeof DecisionsRoute
+  '/funnel': typeof FunnelRoute
+  '/health': typeof HealthRoute
+  '/holdings': typeof HoldingsRoute
+  '/performance': typeof PerformanceRoute
+  '/supervisor': typeof SupervisorRoute
+  '/debug/events': typeof DebugEventsRoute
+  '/debug/logs': typeof DebugLogsRoute
+  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/debug'
+    | '/costs'
+    | '/decisions'
+    | '/funnel'
+    | '/health'
+    | '/holdings'
+    | '/performance'
+    | '/supervisor'
+    | '/debug/events'
+    | '/debug/logs'
+    | '/debug/replay'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/debug'
+    | '/costs'
+    | '/decisions'
+    | '/funnel'
+    | '/health'
+    | '/holdings'
+    | '/performance'
+    | '/supervisor'
+    | '/debug/events'
+    | '/debug/logs'
+    | '/debug/replay'
+  id:
+    | '__root__'
+    | '/'
+    | '/debug'
+    | '/costs'
+    | '/decisions'
+    | '/funnel'
+    | '/health'
+    | '/holdings'
+    | '/performance'
+    | '/supervisor'
+    | '/debug/events'
+    | '/debug/logs'
+    | '/debug/replay'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DebugRouteRoute: typeof DebugRouteRouteWithChildren
+  CostsRoute: typeof CostsRoute
+  DecisionsRoute: typeof DecisionsRoute
+  FunnelRoute: typeof FunnelRoute
+  HealthRoute: typeof HealthRoute
+  HoldingsRoute: typeof HoldingsRoute
+  PerformanceRoute: typeof PerformanceRoute
+  SupervisorRoute: typeof SupervisorRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/supervisor': {
+      id: '/supervisor'
+      path: '/supervisor'
+      fullPath: '/supervisor'
+      preLoaderRoute: typeof SupervisorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/performance': {
+      id: '/performance'
+      path: '/performance'
+      fullPath: '/performance'
+      preLoaderRoute: typeof PerformanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/holdings': {
+      id: '/holdings'
+      path: '/holdings'
+      fullPath: '/holdings'
+      preLoaderRoute: typeof HoldingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/funnel': {
+      id: '/funnel'
+      path: '/funnel'
+      fullPath: '/funnel'
+      preLoaderRoute: typeof FunnelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/decisions': {
+      id: '/decisions'
+      path: '/decisions'
+      fullPath: '/decisions'
+      preLoaderRoute: typeof DecisionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/costs': {
+      id: '/costs'
+      path: '/costs'
+      fullPath: '/costs'
+      preLoaderRoute: typeof CostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/debug': {
+      id: '/debug'
+      path: '/debug'
+      fullPath: '/debug'
+      preLoaderRoute: typeof DebugRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +248,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/debug/replay': {
+      id: '/debug/replay'
+      path: '/replay'
+      fullPath: '/debug/replay'
+      preLoaderRoute: typeof DebugReplayRouteImport
+      parentRoute: typeof DebugRouteRoute
+    }
+    '/debug/logs': {
+      id: '/debug/logs'
+      path: '/logs'
+      fullPath: '/debug/logs'
+      preLoaderRoute: typeof DebugLogsRouteImport
+      parentRoute: typeof DebugRouteRoute
+    }
+    '/debug/events': {
+      id: '/debug/events'
+      path: '/events'
+      fullPath: '/debug/events'
+      preLoaderRoute: typeof DebugEventsRouteImport
+      parentRoute: typeof DebugRouteRoute
+    }
   }
 }
 
+interface DebugRouteRouteChildren {
+  DebugEventsRoute: typeof DebugEventsRoute
+  DebugLogsRoute: typeof DebugLogsRoute
+  DebugReplayRoute: typeof DebugReplayRoute
+}
+
+const DebugRouteRouteChildren: DebugRouteRouteChildren = {
+  DebugEventsRoute: DebugEventsRoute,
+  DebugLogsRoute: DebugLogsRoute,
+  DebugReplayRoute: DebugReplayRoute,
+}
+
+const DebugRouteRouteWithChildren = DebugRouteRoute._addFileChildren(
+  DebugRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DebugRouteRoute: DebugRouteRouteWithChildren,
+  CostsRoute: CostsRoute,
+  DecisionsRoute: DecisionsRoute,
+  FunnelRoute: FunnelRoute,
+  HealthRoute: HealthRoute,
+  HoldingsRoute: HoldingsRoute,
+  PerformanceRoute: PerformanceRoute,
+  SupervisorRoute: SupervisorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
