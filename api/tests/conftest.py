@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS sim_portfolio_snapshots (
     exit_stage TEXT DEFAULT 'initial',
     portfolio_heat_contribution REAL DEFAULT 0.0,
     sector_concentration_status TEXT DEFAULT 'ok',
+    portfolio_value REAL,
+    spy_value REAL,
     created_at TEXT
 );
 """
@@ -118,11 +120,11 @@ INSERT INTO sim_positions (ticker, sector, entry_price, entry_date, current_pric
     ('TSLA', 'Automotive', 250.00, '2026-03-10', 270.00, 8, 'open', 2, 230.00, 280.00, 300.00, 'low', '2026-03-10T09:30:00Z'),
     ('JPM', 'Finance', 200.00, '2026-02-01', 210.00, 15, 'closed', 1, 185.00, 220.00, 240.00, 'medium', '2026-02-01T09:30:00Z');
 
-INSERT INTO sim_portfolio_snapshots (snapshot_date, ticker, current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status, created_at) VALUES
-    ('2026-04-04', 'AAPL', 170.00, 'breakeven', 0.12, 'ok', '2026-04-04T06:00:00Z'),
-    ('2026-04-04', 'MSFT', 405.00, 'initial', 0.08, 'warning', '2026-04-04T06:00:00Z'),
-    ('2026-04-04', 'NVDA', 860.00, 'initial', 0.15, 'ok', '2026-04-04T06:00:00Z'),
-    ('2026-04-03', 'AAPL', 168.00, 'initial', 0.10, 'ok', '2026-04-03T06:00:00Z');
+INSERT INTO sim_portfolio_snapshots (snapshot_date, ticker, current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status, portfolio_value, spy_value, created_at) VALUES
+    ('2026-04-04', 'AAPL', 170.00, 'breakeven', 0.12, 'ok', NULL, NULL, '2026-04-04T06:00:00Z'),
+    ('2026-04-04', 'MSFT', 405.00, 'initial', 0.08, 'warning', NULL, NULL, '2026-04-04T06:00:00Z'),
+    ('2026-04-04', 'NVDA', 860.00, 'initial', 0.15, 'ok', NULL, NULL, '2026-04-04T06:00:00Z'),
+    ('2026-04-03', 'AAPL', 168.00, 'initial', 0.10, 'ok', NULL, NULL, '2026-04-03T06:00:00Z');
 """
 
 SUPERVISOR_SCHEMA = """
@@ -163,6 +165,98 @@ INSERT INTO events (source, event_type, data, created_at) VALUES
 """
 
 
+PORTFOLIO_PERFORMANCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sim_portfolio_snapshots_perf (
+    id INTEGER PRIMARY KEY,
+    snapshot_date TEXT NOT NULL,
+    portfolio_value REAL,
+    spy_value REAL,
+    created_at TEXT
+);
+"""
+
+PORTFOLIO_PERFORMANCE_SAMPLE_DATA = """
+INSERT INTO sim_portfolio_snapshots (snapshot_date, ticker, current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status, portfolio_value, spy_value, created_at) VALUES
+    ('2026-01-15', '_PORTFOLIO', NULL, NULL, NULL, NULL, 100000.00, 4800.00, '2026-01-15T06:00:00Z'),
+    ('2026-02-15', '_PORTFOLIO', NULL, NULL, NULL, NULL, 105000.00, 4900.00, '2026-02-15T06:00:00Z'),
+    ('2026-03-15', '_PORTFOLIO', NULL, NULL, NULL, NULL, 108000.00, 4950.00, '2026-03-15T06:00:00Z'),
+    ('2026-04-04', '_PORTFOLIO', NULL, NULL, NULL, NULL, 112500.00, 5200.00, '2026-04-04T06:00:00Z');
+"""
+
+SUPERVISOR_PERFORMANCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    scan_date TEXT NOT NULL,
+    predicted_outcome TEXT,
+    probability REAL,
+    eval_window TEXT,
+    resolved INTEGER DEFAULT 0,
+    actual_outcome TEXT,
+    brier_score REAL,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS eval_results (
+    id INTEGER PRIMARY KEY,
+    prediction_id INTEGER,
+    eval_window TEXT NOT NULL,
+    hit INTEGER NOT NULL DEFAULT 0,
+    forward_return REAL,
+    evaluated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS arena_decisions (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    scan_date TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    cost_usd REAL DEFAULT 0.0,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS arena_forward_returns (
+    id INTEGER PRIMARY KEY,
+    arena_decision_id INTEGER NOT NULL,
+    forward_return REAL,
+    evaluated_at TEXT
+);
+"""
+
+SUPERVISOR_PERFORMANCE_SAMPLE_DATA = """
+INSERT INTO predictions (ticker, scan_date, predicted_outcome, probability, eval_window, resolved, actual_outcome, brier_score, created_at) VALUES
+    ('AAPL', '2026-03-01', 'up', 0.75, 'T+5', 1, 'up', 0.0625, '2026-03-01T06:00:00Z'),
+    ('MSFT', '2026-03-01', 'up', 0.60, 'T+10', 1, 'down', 0.36, '2026-03-01T06:00:00Z'),
+    ('GOOGL', '2026-03-01', 'up', 0.80, 'T+20', 1, 'up', 0.04, '2026-03-01T06:00:00Z'),
+    ('NVDA', '2026-03-15', 'up', 0.55, 'T+5', 1, 'down', 0.3025, '2026-03-15T06:00:00Z'),
+    ('TSLA', '2026-03-15', 'down', 0.70, 'T+10', 1, 'down', 0.09, '2026-03-15T06:00:00Z'),
+    ('META', '2026-03-15', 'up', 0.65, 'T+20', 0, NULL, NULL, '2026-03-15T06:00:00Z');
+
+INSERT INTO eval_results (prediction_id, eval_window, hit, forward_return, evaluated_at) VALUES
+    (1, 'T+5', 1, 3.5, '2026-03-06T06:00:00Z'),
+    (2, 'T+10', 0, -2.1, '2026-03-11T06:00:00Z'),
+    (3, 'T+20', 1, 5.2, '2026-03-21T06:00:00Z'),
+    (4, 'T+5', 0, -1.8, '2026-03-20T06:00:00Z'),
+    (5, 'T+10', 1, 4.0, '2026-03-25T06:00:00Z');
+
+INSERT INTO arena_decisions (session_id, model_id, ticker, scan_date, decision, cost_usd, created_at) VALUES
+    ('2026-03-arena-1', 'claude-sonnet', 'AAPL', '2026-03-01', 'buy', 0.50, '2026-03-01T06:00:00Z'),
+    ('2026-03-arena-1', 'claude-sonnet', 'MSFT', '2026-03-01', 'buy', 0.50, '2026-03-01T06:00:00Z'),
+    ('2026-03-arena-1', 'claude-sonnet', 'GOOGL', '2026-03-01', 'hold', 0.50, '2026-03-01T06:00:00Z'),
+    ('2026-03-arena-1', 'gpt-4o', 'AAPL', '2026-03-01', 'buy', 0.80, '2026-03-01T06:00:00Z'),
+    ('2026-03-arena-1', 'gpt-4o', 'MSFT', '2026-03-01', 'sell', 0.80, '2026-03-01T06:00:00Z');
+
+INSERT INTO arena_forward_returns (arena_decision_id, forward_return, evaluated_at) VALUES
+    (1, 3.5, '2026-03-21T06:00:00Z'),
+    (2, -2.1, '2026-03-21T06:00:00Z'),
+    (3, 5.2, '2026-03-21T06:00:00Z'),
+    (4, 3.5, '2026-03-21T06:00:00Z'),
+    (5, -2.1, '2026-03-21T06:00:00Z');
+"""
+
+
 @pytest.fixture
 def supervisor_db_path(tmp_path: Path) -> str:
     """Create a temporary supervisor DB with schema and sample data."""
@@ -183,6 +277,33 @@ def portfolio_db_path(tmp_path: Path) -> str:
     conn.executescript(PORTFOLIO_FUNNEL_SAMPLE_DATA)
     conn.executescript(PORTFOLIO_HOLDINGS_SCHEMA)
     conn.executescript(PORTFOLIO_HOLDINGS_SAMPLE_DATA)
+    conn.close()
+    return str(db_file)
+
+
+@pytest.fixture
+def performance_portfolio_db_path(tmp_path: Path) -> str:
+    """Create a temporary portfolio DB with all schemas including performance data."""
+    db_file = tmp_path / "portfolio_perf.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(PORTFOLIO_FUNNEL_SCHEMA)
+    conn.executescript(PORTFOLIO_FUNNEL_SAMPLE_DATA)
+    conn.executescript(PORTFOLIO_HOLDINGS_SCHEMA)
+    conn.executescript(PORTFOLIO_HOLDINGS_SAMPLE_DATA)
+    conn.executescript(PORTFOLIO_PERFORMANCE_SAMPLE_DATA)
+    conn.close()
+    return str(db_file)
+
+
+@pytest.fixture
+def performance_supervisor_db_path(tmp_path: Path) -> str:
+    """Create a temporary supervisor DB with all schemas including performance data."""
+    db_file = tmp_path / "supervisor_perf.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(SUPERVISOR_SCHEMA)
+    conn.executescript(SUPERVISOR_SAMPLE_DATA)
+    conn.executescript(SUPERVISOR_PERFORMANCE_SCHEMA)
+    conn.executescript(SUPERVISOR_PERFORMANCE_SAMPLE_DATA)
     conn.close()
     return str(db_file)
 

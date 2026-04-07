@@ -69,8 +69,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Performance & Prediction Accuracy
-  epic-5: backlog
-  5-1-performance-api-endpoint: backlog
+  epic-5: in-progress
+  5-1-performance-api-endpoint: done
   5-2-performance-tab-portfolio-pnl-and-benchmark-charts: backlog
   5-3-performance-tab-prediction-accuracy-and-arena-comparison: backlog
   epic-5-retrospective: optional

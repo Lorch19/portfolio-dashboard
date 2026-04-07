@@ -1,4 +1,5 @@
 import logging
+import math
 import sqlite3
 from datetime import date
 
@@ -230,3 +231,135 @@ def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
         }
 
     return risk_dict
+
+
+def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
+    """Return portfolio performance summary: P&L, CAGR, SPY return, alpha.
+
+    Queries sim_portfolio_snapshots for aggregate portfolio_value and spy_value
+    columns. Computes CAGR from first and latest snapshot dates.
+
+    Returns dict with: total_pnl, total_pnl_pct, cagr, spy_return, alpha,
+    start_date, end_date, total_trades.
+    """
+    # Get earliest and latest portfolio snapshots (aggregate rows)
+    row = conn.execute(
+        """
+        SELECT MIN(snapshot_date) AS start_date, MAX(snapshot_date) AS end_date
+        FROM sim_portfolio_snapshots
+        WHERE portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
+        """
+    ).fetchone()
+
+    if row is None or row["start_date"] is None:
+        return {
+            "total_pnl": None,
+            "total_pnl_pct": None,
+            "cagr": None,
+            "spy_return": None,
+            "alpha": None,
+            "start_date": None,
+            "end_date": None,
+            "total_trades": 0,
+        }
+
+    start_date = row["start_date"]
+    end_date = row["end_date"]
+
+    # Get start and end portfolio values
+    start_row = conn.execute(
+        """
+        SELECT portfolio_value, spy_value
+        FROM sim_portfolio_snapshots
+        WHERE snapshot_date = ? AND portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
+        ORDER BY id ASC LIMIT 1
+        """,
+        (start_date,),
+    ).fetchone()
+
+    end_row = conn.execute(
+        """
+        SELECT portfolio_value, spy_value
+        FROM sim_portfolio_snapshots
+        WHERE snapshot_date = ? AND portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
+        ORDER BY id DESC LIMIT 1
+        """,
+        (end_date,),
+    ).fetchone()
+
+    if start_row is None or end_row is None:
+        return {
+            "total_pnl": None,
+            "total_pnl_pct": None,
+            "cagr": None,
+            "spy_return": None,
+            "alpha": None,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_trades": 0,
+        }
+
+    start_value = start_row["portfolio_value"]
+    end_value = end_row["portfolio_value"]
+    start_spy = start_row["spy_value"]
+    end_spy = end_row["spy_value"]
+
+    # Compute P&L
+    if start_value is not None and end_value is not None and start_value > 0:
+        total_pnl = round(end_value - start_value, 2)
+        total_pnl_pct = round(((end_value - start_value) / start_value) * 100, 2)
+    else:
+        total_pnl = None
+        total_pnl_pct = None
+
+    # Compute CAGR
+    cagr = _compute_cagr(start_value, end_value, start_date, end_date)
+
+    # Compute SPY return
+    if start_spy is not None and end_spy is not None and start_spy > 0:
+        spy_return = round(((end_spy - start_spy) / start_spy) * 100, 2)
+    else:
+        spy_return = None
+
+    # Alpha = portfolio return - SPY return
+    if total_pnl_pct is not None and spy_return is not None:
+        alpha = round(total_pnl_pct - spy_return, 2)
+    else:
+        alpha = None
+
+    # Total trades
+    try:
+        trade_count = conn.execute("SELECT COUNT(*) AS cnt FROM trade_events").fetchone()["cnt"]
+    except Exception as exc:
+        logger.warning("Could not query trade_events: %s", exc)
+        trade_count = 0
+
+    return {
+        "total_pnl": total_pnl,
+        "total_pnl_pct": total_pnl_pct,
+        "cagr": cagr,
+        "spy_return": spy_return,
+        "alpha": alpha,
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_trades": trade_count,
+    }
+
+
+def _compute_cagr(
+    start_value: float | None, end_value: float | None,
+    start_date: str, end_date: str,
+) -> float | None:
+    """CAGR = (end/start)^(365/days) - 1, returned as percentage."""
+    if start_value is None or end_value is None or start_value <= 0 or end_value <= 0:
+        return None
+    try:
+        d1 = date.fromisoformat(start_date)
+        d2 = date.fromisoformat(end_date)
+        days = (d2 - d1).days
+        if days < 7:
+            return None
+        cagr = (math.pow(end_value / start_value, 365 / days) - 1) * 100
+        return round(cagr, 2)
+    except (ValueError, TypeError):
+        return None

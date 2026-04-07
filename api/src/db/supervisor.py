@@ -1,4 +1,7 @@
+import logging
 import sqlite3
+
+logger = logging.getLogger(__name__)
 
 EXPECTED_AGENTS = ["Chronicler", "Guardian", "Michael", "Radar", "Scout", "Shadow Observer"]
 
@@ -128,3 +131,179 @@ def get_daemon_status(conn: sqlite3.Connection) -> list[dict]:
         """
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_prediction_accuracy(conn: sqlite3.Connection) -> dict:
+    """Return prediction accuracy metrics from predictions and eval_results tables.
+
+    Returns: total_predictions, resolved_count, hit_rate, hit_rate_by_window
+    (t_5, t_10, t_20), average_brier_score.
+    """
+    # Total and resolved predictions
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS total, SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved
+        FROM predictions
+        """
+    ).fetchone()
+
+    total = row["total"]
+    resolved = row["resolved"] or 0
+
+    if total == 0:
+        return {
+            "total_predictions": 0,
+            "resolved_count": 0,
+            "hit_rate": None,
+            "hit_rate_by_window": {"t_5": None, "t_10": None, "t_20": None},
+            "average_brier_score": None,
+        }
+
+    # Overall hit rate from eval_results
+    hit_row = conn.execute(
+        """
+        SELECT COUNT(*) AS total_evals, SUM(hit) AS total_hits
+        FROM eval_results
+        """
+    ).fetchone()
+
+    total_evals = hit_row["total_evals"]
+    total_hits = hit_row["total_hits"] or 0
+    hit_rate = round(total_hits / total_evals, 4) if total_evals > 0 else None
+
+    # Hit rate by eval window
+    window_rows = conn.execute(
+        """
+        SELECT eval_window, COUNT(*) AS cnt, SUM(hit) AS hits
+        FROM eval_results
+        GROUP BY eval_window
+        """
+    ).fetchall()
+
+    hit_by_window = {"t_5": None, "t_10": None, "t_20": None}
+    for wr in window_rows:
+        window = wr["eval_window"]
+        cnt = wr["cnt"]
+        hits = wr["hits"] or 0
+        rate = round(hits / cnt, 4) if cnt > 0 else None
+        # Normalize window names: "T+5" -> "t_5", "t_5" -> "t_5"
+        key = window.lower().replace("+", "_").replace("-", "_")
+        if key in hit_by_window:
+            hit_by_window[key] = rate
+        else:
+            logger.warning("Unrecognized eval_window value: %s (normalized: %s)", window, key)
+
+    # Average Brier score from resolved predictions
+    brier_row = conn.execute(
+        """
+        SELECT AVG(brier_score) AS avg_brier
+        FROM predictions
+        WHERE resolved = 1 AND brier_score IS NOT NULL
+        """
+    ).fetchone()
+
+    avg_brier = round(brier_row["avg_brier"], 4) if brier_row["avg_brier"] is not None else None
+
+    return {
+        "total_predictions": total,
+        "resolved_count": resolved,
+        "hit_rate": hit_rate,
+        "hit_rate_by_window": hit_by_window,
+        "average_brier_score": avg_brier,
+    }
+
+
+def get_calibration_scores(conn: sqlite3.Connection) -> dict:
+    """Return CalibrationEngine metrics from predictions table.
+
+    Returns: average_brier_score, target_brier (0.25), beating_random,
+    agreement_rate, sycophancy_flag.
+    """
+    row = conn.execute(
+        """
+        SELECT AVG(brier_score) AS avg_brier,
+               COUNT(*) AS total,
+               SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved
+        FROM predictions
+        WHERE brier_score IS NOT NULL
+        """
+    ).fetchone()
+
+    if row is None or row["total"] == 0:
+        return {
+            "average_brier_score": None,
+            "target_brier": 0.25,
+            "beating_random": None,
+            "agreement_rate": None,
+            "sycophancy_flag": None,
+        }
+
+    avg_brier = round(row["avg_brier"], 4) if row["avg_brier"] is not None else None
+    beating_random = avg_brier < 0.25 if avg_brier is not None else None
+
+    # Agreement rate: fraction of predictions where predicted_outcome matches actual_outcome
+    agreement_row = conn.execute(
+        """
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN predicted_outcome = actual_outcome THEN 1 ELSE 0 END) AS agreed
+        FROM predictions
+        WHERE resolved = 1 AND actual_outcome IS NOT NULL
+        """
+    ).fetchone()
+
+    if agreement_row["total"] > 0:
+        agreement_rate = round(agreement_row["agreed"] / agreement_row["total"], 4)
+        # Sycophancy flag: if agreement rate is suspiciously high (>0.95)
+        # and Brier score is poor (>0.25), predictions may be sycophantic
+        sycophancy_flag = agreement_rate > 0.95 and (avg_brier is not None and avg_brier > 0.25)
+    else:
+        agreement_rate = None
+        sycophancy_flag = None
+
+    return {
+        "average_brier_score": avg_brier,
+        "target_brier": 0.25,
+        "beating_random": beating_random,
+        "agreement_rate": agreement_rate,
+        "sycophancy_flag": sycophancy_flag,
+    }
+
+
+def get_arena_comparison(conn: sqlite3.Connection) -> list[dict]:
+    """Return per-model arena comparison stats grouped by session.
+
+    Queries arena_decisions JOIN arena_forward_returns for: model_id,
+    session_id, total_decisions, hit_rate, average_alpha, total_cost.
+    """
+    rows = conn.execute(
+        """
+        SELECT
+            ad.model_id,
+            ad.session_id,
+            COUNT(*) AS total_decisions,
+            SUM(CASE WHEN afr.forward_return IS NOT NULL AND afr.forward_return > 0 THEN 1 ELSE 0 END) AS hits,
+            SUM(CASE WHEN afr.forward_return IS NOT NULL THEN 1 ELSE 0 END) AS evaluated,
+            AVG(afr.forward_return) AS avg_alpha,
+            SUM(ad.cost_usd) AS total_cost
+        FROM arena_decisions ad
+        LEFT JOIN arena_forward_returns afr ON afr.arena_decision_id = ad.id
+        GROUP BY ad.model_id, ad.session_id
+        ORDER BY ad.session_id, ad.model_id
+        """
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        total = row["total_decisions"]
+        hits = row["hits"] or 0
+        evaluated = row["evaluated"] or 0
+        results.append({
+            "model_id": row["model_id"],
+            "session": row["session_id"],
+            "total_decisions": total,
+            "hit_rate": round(hits / evaluated, 4) if evaluated > 0 else None,
+            "average_alpha": round(row["avg_alpha"], 4) if row["avg_alpha"] is not None else None,
+            "total_cost": round(row["total_cost"], 2) if row["total_cost"] is not None else 0.0,
+        })
+
+    return results

@@ -67,3 +67,8 @@
 - `aria-live="polite"` wraps skeleton render — screen readers may announce skeleton nodes before real data. Matches pre-existing pattern from health tab (story 1-4 deferred).
 - All-zero stages render 1% minimum-width bars — confusing visual for empty data. Backend message field partially addresses this. Cosmetic polish.
 - No `max` attribute on date input — users can select future dates with no data. Cosmetic UX guard.
+
+## Deferred from: code review of story 5-1 (2026-04-06)
+
+- Error messages leak internal filesystem paths in performance endpoint — pre-existing pattern across all routers (health, funnel, holdings). Acceptable for internal dashboard.
+- No pagination or rate limiting on /api/performance — architecture explicitly defers pagination and caching. Single-user dashboard.
