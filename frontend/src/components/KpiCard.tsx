@@ -10,9 +10,9 @@ interface KpiCardProps {
 }
 
 const trendConfig = {
-  positive: { icon: ArrowUp, color: "text-success" },
-  negative: { icon: ArrowDown, color: "text-destructive" },
-  neutral: { icon: Minus, color: "text-muted-foreground" },
+  positive: { icon: ArrowUp, color: "text-success", valueColor: "text-success" },
+  negative: { icon: ArrowDown, color: "text-destructive", valueColor: "text-destructive" },
+  neutral: { icon: Minus, color: "text-muted-foreground", valueColor: "" },
 } as const
 
 export function KpiCard({ label, value, trend, subtext }: KpiCardProps) {
@@ -21,7 +21,7 @@ export function KpiCard({ label, value, trend, subtext }: KpiCardProps) {
       <CardContent className="p-4">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         <div className="mt-1 flex items-center gap-2">
-          <span className="text-2xl font-bold">{value}</span>
+          <span className={`text-2xl font-bold ${trend ? trendConfig[trend].valueColor : ""}`}>{value}</span>
           {trend && <TrendIcon trend={trend} />}
         </div>
         {subtext && (

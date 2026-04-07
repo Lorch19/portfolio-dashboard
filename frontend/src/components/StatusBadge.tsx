@@ -21,7 +21,7 @@ export function StatusBadge({ status, variant = "full", agentName }: StatusBadge
     <span className="inline-flex items-center gap-1.5" role="status" aria-label={ariaLabel}>
       <span className={`h-2 w-2 rounded-full ${colorClass}`} />
       {variant === "full" && (
-        <span className="text-xs capitalize text-muted-foreground">{label}</span>
+        <span className="text-sm capitalize text-muted-foreground">{label}</span>
       )}
     </span>
   )

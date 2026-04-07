@@ -9,7 +9,7 @@ interface ErrorCardProps {
 
 export function ErrorCard({ error, onRetry }: ErrorCardProps) {
   return (
-    <Card className="border-destructive/50 bg-destructive-muted">
+    <Card role="alert" className="border-destructive/50 bg-destructive-muted">
       <CardContent className="flex items-center gap-3 p-4">
         <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
         <p className="flex-1 text-sm text-foreground">{error}</p>

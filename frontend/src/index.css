@@ -62,28 +62,28 @@
 
 :root {
     /* Backgrounds */
-    --background: 230 21% 5%;
-    --card: 230 18% 8%;
-    --card-hover: 230 16% 11%;
+    --background: hsl(230, 21%, 5%);
+    --card: hsl(230, 18%, 8%);
+    --card-hover: hsl(230, 16%, 11%);
     --card-foreground: var(--foreground);
-    --muted: 230 14% 14%;
-    --sidebar: 230 20% 7%;
+    --muted: hsl(230, 14%, 14%);
+    --sidebar: hsl(230, 20%, 7%);
 
     /* Foregrounds */
-    --foreground: 210 20% 92%;
-    --muted-foreground: 215 15% 55%;
-    --faint-foreground: 215 12% 35%;
+    --foreground: hsl(210, 20%, 92%);
+    --muted-foreground: hsl(215, 15%, 55%);
+    --faint-foreground: hsl(215, 12%, 35%);
 
     /* Semantic */
-    --primary: 215 70% 55%;
-    --primary-foreground: 0 0% 100%;
-    --primary-muted: 215 40% 15%;
-    --success: 152 60% 48%;
-    --success-muted: 152 40% 15%;
-    --warning: 38 85% 55%;
-    --warning-muted: 38 50% 15%;
-    --destructive: 0 70% 55%;
-    --destructive-muted: 0 40% 15%;
+    --primary: hsl(215, 70%, 55%);
+    --primary-foreground: hsl(0, 0%, 100%);
+    --primary-muted: hsl(215, 40%, 15%);
+    --success: hsl(152, 60%, 48%);
+    --success-muted: hsl(152, 40%, 15%);
+    --warning: hsl(38, 85%, 55%);
+    --warning-muted: hsl(38, 50%, 15%);
+    --destructive: hsl(0, 70%, 55%);
+    --destructive-muted: hsl(0, 40%, 15%);
 
     /* shadcn required mappings */
     --popover: var(--card);
@@ -92,21 +92,21 @@
     --secondary-foreground: var(--foreground);
     --accent: var(--muted);
     --accent-foreground: var(--foreground);
-    --destructive-foreground: 0 0% 100%;
-    --border: 230 14% 18%;
-    --input: 230 14% 18%;
+    --destructive-foreground: hsl(0, 0%, 100%);
+    --border: hsl(230, 14%, 18%);
+    --input: hsl(230, 14%, 18%);
     --ring: var(--primary);
 
     /* Chart colors */
     --chart-1: var(--primary);
-    --chart-2: 215 15% 55%;
+    --chart-2: hsl(215, 15%, 55%);
     --chart-3: var(--success);
     --chart-4: var(--warning);
     --chart-5: var(--destructive);
     --chart-grid: var(--muted);
-    --chart-axis: 215 15% 40%;
+    --chart-axis: hsl(215, 15%, 40%);
     --chart-line-1: var(--primary);
-    --chart-line-2: 215 15% 55%;
+    --chart-line-2: hsl(215, 15%, 55%);
 
     /* Spacing scale (4px base) */
     --space-1: 4px;
