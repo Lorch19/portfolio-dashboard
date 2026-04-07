@@ -183,23 +183,21 @@ class TestFunnelEndpoint:
         conn = sqlite3.connect(str(db_file))
         conn.executescript("""
             CREATE TABLE scout_candidates (
-                id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT, passed_gates INTEGER
+                id TEXT PRIMARY KEY, scan_date TEXT, ticker TEXT, was_traded BOOLEAN DEFAULT FALSE, created_at TEXT
             );
             CREATE TABLE guardian_decisions (
-                id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT, decision TEXT
+                id TEXT PRIMARY KEY, decision_date TEXT, ticker TEXT, decision TEXT, proposed_conviction INTEGER, created_at TEXT
             );
             CREATE TABLE trade_events (
-                id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT, action TEXT
+                id TEXT PRIMARY KEY, timestamp TEXT, source TEXT, event_type TEXT, ticker TEXT, entry_price REAL, created_at TEXT
             );
-            INSERT INTO scout_candidates (scan_date, ticker, passed_gates) VALUES ('2026-04-04', 'AAPL', 1);
+            INSERT INTO scout_candidates (id, scan_date, ticker, was_traded) VALUES ('sc1', '2026-04-04', 'AAPL', 0);
         """)
         conn.close()
         monkeypatch.setattr("src.config.settings.portfolio_db_path", str(db_file))
         data = client.get("/api/funnel?scan_date=2026-04-04").json()
-        # Stages works (scout_candidates, guardian_decisions, trade_events exist)
-        assert data["stages"] is not None
-        assert data["stages_error"] is None
-        assert data["stages"]["scout_universe"] == 1
-        # Drilldown fails (rejection_log table missing)
+        # Both stages and drilldown fail because rejection_log is needed by get_funnel_counts
+        assert data["stages"] is None
+        assert data["stages_error"] is not None
         assert data["drilldown"] is None
         assert data["drilldown_error"] is not None

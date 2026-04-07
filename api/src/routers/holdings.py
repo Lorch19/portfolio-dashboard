@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from src.config import settings
 from src.db.connection import get_db_connection
-from src.db.portfolio import get_open_positions, get_portfolio_risk_data
+from src.db.portfolio import get_open_positions, get_portfolio_risk_data, get_portfolio_summary
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -67,6 +67,15 @@ def _query_holdings() -> dict:
         except Exception as exc:
             logger.exception("Error querying portfolio risk data")
             result["risk_data_error"] = str(exc)
+
+        # Portfolio summary section
+        try:
+            result["portfolio_summary"] = get_portfolio_summary(conn)
+            result["portfolio_summary_error"] = None
+        except Exception as exc:
+            logger.exception("Error querying portfolio summary")
+            result["portfolio_summary"] = None
+            result["portfolio_summary_error"] = str(exc)
 
         # Merge risk data into positions
         if positions is not None:

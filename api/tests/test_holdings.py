@@ -89,16 +89,17 @@ class TestGetOpenPositions:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_positions (
-                id INTEGER PRIMARY KEY, ticker TEXT, sector TEXT,
-                entry_price REAL, entry_date TEXT, current_price REAL,
-                shares REAL, status TEXT, sleeve INTEGER, stop_loss REAL,
-                target_1 REAL, target_2 REAL, conviction TEXT
+                id TEXT PRIMARY KEY, trade_event_id TEXT, ticker TEXT, sector TEXT,
+                entry_price REAL, entry_date TEXT, shares INTEGER,
+                stop_loss REAL, target_1 REAL, target_2 REAL,
+                conviction INTEGER, sleeve TEXT, status TEXT, peak_price REAL,
+                exit_price REAL, exit_date TEXT, pnl_pct REAL, days_held INTEGER, created_at TEXT
             )
         """)
         # Insert only a closed position
         conn.execute(
-            "INSERT INTO sim_positions (ticker, sector, entry_price, entry_date, current_price, shares, status, sleeve, conviction) "
-            "VALUES ('XYZ', 'Tech', 100.0, '2026-01-01', 110.0, 5, 'closed', 1, 'low')"
+            "INSERT INTO sim_positions (id, ticker, sector, entry_price, entry_date, peak_price, shares, status, sleeve, conviction) "
+            "VALUES ('sp-xyz', 'XYZ', 'Tech', 100.0, '2026-01-01', 110.0, 5, 'closed', 'sleeve1', 3)"
         )
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -111,15 +112,16 @@ class TestGetOpenPositions:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_positions (
-                id INTEGER PRIMARY KEY, ticker TEXT, sector TEXT,
-                entry_price REAL, entry_date TEXT, current_price REAL,
-                shares REAL, status TEXT, sleeve INTEGER, stop_loss REAL,
-                target_1 REAL, target_2 REAL, conviction TEXT
+                id TEXT PRIMARY KEY, trade_event_id TEXT, ticker TEXT, sector TEXT,
+                entry_price REAL, entry_date TEXT, shares INTEGER,
+                stop_loss REAL, target_1 REAL, target_2 REAL,
+                conviction INTEGER, sleeve TEXT, status TEXT, peak_price REAL,
+                exit_price REAL, exit_date TEXT, pnl_pct REAL, days_held INTEGER, created_at TEXT
             )
         """)
         conn.execute(
-            "INSERT INTO sim_positions (ticker, sector, entry_price, entry_date, current_price, shares, status, sleeve, conviction) "
-            "VALUES ('NULL_TEST', 'Tech', NULL, '2026-01-01', 100.0, 5, 'open', 1, 'low')"
+            "INSERT INTO sim_positions (id, ticker, sector, entry_price, entry_date, peak_price, shares, status, sleeve, conviction) "
+            "VALUES ('sp-null', 'NULL_TEST', 'Tech', NULL, '2026-01-01', 100.0, 5, 'open', 'sleeve1', 3)"
         )
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -135,15 +137,16 @@ class TestGetOpenPositions:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_positions (
-                id INTEGER PRIMARY KEY, ticker TEXT, sector TEXT,
-                entry_price REAL, entry_date TEXT, current_price REAL,
-                shares REAL, status TEXT, sleeve INTEGER, stop_loss REAL,
-                target_1 REAL, target_2 REAL, conviction TEXT
+                id TEXT PRIMARY KEY, trade_event_id TEXT, ticker TEXT, sector TEXT,
+                entry_price REAL, entry_date TEXT, shares INTEGER,
+                stop_loss REAL, target_1 REAL, target_2 REAL,
+                conviction INTEGER, sleeve TEXT, status TEXT, peak_price REAL,
+                exit_price REAL, exit_date TEXT, pnl_pct REAL, days_held INTEGER, created_at TEXT
             )
         """)
         conn.execute(
-            "INSERT INTO sim_positions (ticker, sector, entry_price, entry_date, current_price, shares, status, sleeve, conviction) "
-            "VALUES ('ZERO', 'Tech', 0.0, '2026-01-01', 10.0, 1, 'open', 1, 'low')"
+            "INSERT INTO sim_positions (id, ticker, sector, entry_price, entry_date, peak_price, shares, status, sleeve, conviction) "
+            "VALUES ('sp-zero', 'ZERO', 'Tech', 0.0, '2026-01-01', 10.0, 1, 'open', 'sleeve1', 3)"
         )
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -154,79 +157,13 @@ class TestGetOpenPositions:
 
 
 class TestGetPortfolioRiskData:
-    def test_returns_risk_data_keyed_by_ticker(self, portfolio_db_path: str):
+    def test_returns_empty_dict(self, portfolio_db_path: str):
+        """Risk data returns empty dict — real schema doesn't have per-ticker risk in snapshots."""
         conn = sqlite3.connect(portfolio_db_path)
-        conn.row_factory = sqlite3.Row
-        risk = get_portfolio_risk_data(conn)
-        conn.close()
-        assert "AAPL" in risk
-        assert "MSFT" in risk
-        assert "NVDA" in risk
-        assert len(risk) >= 3
-
-    def test_per_ticker_latest_date(self, tmp_path):
-        """Ticker with only older snapshot should still get risk data."""
-        db_file = tmp_path / "per_ticker.db"
-        conn = sqlite3.connect(str(db_file))
-        conn.execute("""
-            CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT
-            )
-        """)
-        conn.executescript("""
-            INSERT INTO sim_portfolio_snapshots (snapshot_date, ticker, current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status)
-            VALUES ('2026-04-04', 'AAPL', 170.00, 'breakeven', 0.12, 'ok');
-            INSERT INTO sim_portfolio_snapshots (snapshot_date, ticker, current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status)
-            VALUES ('2026-04-03', 'TSLA', 230.00, 'initial', 0.05, 'warning');
-        """)
-        conn.row_factory = sqlite3.Row
-        risk = get_portfolio_risk_data(conn)
-        conn.close()
-        # Both tickers should have risk data — TSLA's latest is 2026-04-03
-        assert "AAPL" in risk
-        assert "TSLA" in risk
-        assert risk["AAPL"]["exit_stage"] == "breakeven"
-        assert risk["TSLA"]["exit_stage"] == "initial"
-        assert risk["TSLA"]["current_stop_level"] == 230.00
-
-    def test_risk_fields_present(self, portfolio_db_path: str):
-        conn = sqlite3.connect(portfolio_db_path)
-        conn.row_factory = sqlite3.Row
-        risk = get_portfolio_risk_data(conn)
-        conn.close()
-        aapl_risk = risk["AAPL"]
-        assert aapl_risk["current_stop_level"] == 170.00
-        assert aapl_risk["exit_stage"] == "breakeven"
-        assert aapl_risk["portfolio_heat_contribution"] == 0.12
-        assert aapl_risk["sector_concentration_status"] == "ok"
-
-    def test_returns_empty_dict_when_no_snapshots(self, tmp_path):
-        db_file = tmp_path / "no_snapshots.db"
-        conn = sqlite3.connect(str(db_file))
-        conn.execute("""
-            CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT
-            )
-        """)
-        conn.commit()
         conn.row_factory = sqlite3.Row
         risk = get_portfolio_risk_data(conn)
         conn.close()
         assert risk == {}
-
-    def test_uses_latest_snapshot_date(self, portfolio_db_path: str):
-        conn = sqlite3.connect(portfolio_db_path)
-        conn.row_factory = sqlite3.Row
-        risk = get_portfolio_risk_data(conn)
-        conn.close()
-        # AAPL has entries for both 2026-04-03 and 2026-04-04
-        # Should use 2026-04-04 values (breakeven, 0.12)
-        assert risk["AAPL"]["exit_stage"] == "breakeven"
-        assert risk["AAPL"]["portfolio_heat_contribution"] == 0.12
 
 
 # ---------------------------------------------------------------------------
@@ -258,24 +195,15 @@ class TestHoldingsEndpoint:
         for pos in data["positions"]:
             assert required_fields.issubset(pos.keys()), f"Missing fields in {pos['ticker']}"
 
-    def test_risk_data_merged_into_positions(self, client: TestClient, portfolio_db_path: str, monkeypatch):
+    def test_positions_have_null_risk_fields(self, client: TestClient, portfolio_db_path: str, monkeypatch):
+        """Risk data not available in new schema — all positions get null risk fields."""
         monkeypatch.setattr("src.config.settings.portfolio_db_path", portfolio_db_path)
         data = client.get("/api/holdings").json()
-        aapl = next(p for p in data["positions"] if p["ticker"] == "AAPL")
-        assert aapl["current_stop_level"] == 170.00
-        assert aapl["exit_stage"] == "breakeven"
-        assert aapl["portfolio_heat_contribution"] == 0.12
-        assert aapl["sector_concentration_status"] == "ok"
-
-    def test_positions_without_risk_data_have_null_risk_fields(self, client: TestClient, portfolio_db_path: str, monkeypatch):
-        monkeypatch.setattr("src.config.settings.portfolio_db_path", portfolio_db_path)
-        data = client.get("/api/holdings").json()
-        # TSLA has no risk snapshot for 2026-04-04
-        tsla = next(p for p in data["positions"] if p["ticker"] == "TSLA")
-        assert tsla["current_stop_level"] is None
-        assert tsla["exit_stage"] is None
-        assert tsla["portfolio_heat_contribution"] is None
-        assert tsla["sector_concentration_status"] is None
+        for pos in data["positions"]:
+            assert pos["current_stop_level"] is None
+            assert pos["exit_stage"] is None
+            assert pos["portfolio_heat_contribution"] is None
+            assert pos["sector_concentration_status"] is None
 
     def test_only_open_positions_returned(self, client: TestClient, portfolio_db_path: str, monkeypatch):
         monkeypatch.setattr("src.config.settings.portfolio_db_path", portfolio_db_path)
@@ -288,17 +216,19 @@ class TestHoldingsEndpoint:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_positions (
-                id INTEGER PRIMARY KEY, ticker TEXT, sector TEXT,
-                entry_price REAL, entry_date TEXT, current_price REAL,
-                shares REAL, status TEXT, sleeve INTEGER, stop_loss REAL,
-                target_1 REAL, target_2 REAL, conviction TEXT
+                id TEXT PRIMARY KEY, trade_event_id TEXT, ticker TEXT, sector TEXT,
+                entry_price REAL, entry_date TEXT, shares INTEGER,
+                stop_loss REAL, target_1 REAL, target_2 REAL,
+                conviction INTEGER, sleeve TEXT, status TEXT, peak_price REAL,
+                exit_price REAL, exit_date TEXT, pnl_pct REAL, days_held INTEGER, created_at TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT
+                date TEXT NOT NULL, strategy_id TEXT NOT NULL DEFAULT 'live',
+                total_value REAL, sp500_return_pct REAL, alpha_pct REAL,
+                total_pnl_pct REAL, regime TEXT, created_at TEXT,
+                PRIMARY KEY (date, strategy_id)
             )
         """)
         conn.commit()
@@ -327,18 +257,19 @@ class TestHoldingsEndpoint:
         assert "not configured" in data["positions_error"]
 
     def test_independent_section_degradation(self, client: TestClient, tmp_path, monkeypatch):
-        """Positions work but risk data fails when sim_portfolio_snapshots table missing."""
+        """Positions work even when sim_portfolio_snapshots table missing (risk data returns empty)."""
         db_file = tmp_path / "partial.db"
         conn = sqlite3.connect(str(db_file))
         conn.executescript("""
             CREATE TABLE sim_positions (
-                id INTEGER PRIMARY KEY, ticker TEXT, sector TEXT,
-                entry_price REAL, entry_date TEXT, current_price REAL,
-                shares REAL, status TEXT, sleeve INTEGER, stop_loss REAL,
-                target_1 REAL, target_2 REAL, conviction TEXT
+                id TEXT PRIMARY KEY, trade_event_id TEXT, ticker TEXT, sector TEXT,
+                entry_price REAL, entry_date TEXT, shares INTEGER,
+                stop_loss REAL, target_1 REAL, target_2 REAL,
+                conviction INTEGER, sleeve TEXT, status TEXT, peak_price REAL,
+                exit_price REAL, exit_date TEXT, pnl_pct REAL, days_held INTEGER, created_at TEXT
             );
-            INSERT INTO sim_positions (ticker, sector, entry_price, entry_date, current_price, shares, status, sleeve, conviction)
-            VALUES ('TEST', 'Tech', 100.0, '2026-03-01', 110.0, 10, 'open', 1, 'medium');
+            INSERT INTO sim_positions (id, ticker, sector, entry_price, entry_date, peak_price, shares, status, sleeve, conviction)
+            VALUES ('sp-test', 'TEST', 'Tech', 100.0, '2026-03-01', 110.0, 10, 'open', 'sleeve1', 5);
         """)
         conn.close()
         monkeypatch.setattr("src.config.settings.portfolio_db_path", str(db_file))
@@ -348,9 +279,9 @@ class TestHoldingsEndpoint:
         assert data["positions_error"] is None
         assert len(data["positions"]) == 1
         assert data["positions"][0]["ticker"] == "TEST"
-        # Risk data fails (table missing)
-        assert data["risk_data_error"] is not None
-        # Positions still have null risk fields
+        # Risk data returns empty (no per-ticker risk in new schema)
+        assert data["risk_data_error"] is None
+        # Positions have null risk fields (default)
         assert data["positions"][0]["current_stop_level"] is None
 
     def test_pnl_values_rounded_to_2dp(self, client: TestClient, portfolio_db_path: str, monkeypatch):

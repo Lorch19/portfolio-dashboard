@@ -34,8 +34,8 @@ class TestGetBrokerageCosts:
         result = get_brokerage_costs(conn)
         conn.close()
 
-        # trade_events sample: AAPL=1855.00, NVDA=4451.25
-        assert result["cumulative_trade_event_fees"] == 1855.00 + 4451.25
+        # trade_events sample: AAPL=1.85, NVDA=4.45
+        assert result["cumulative_trade_event_fees"] == 6.30
 
     def test_cumulative_realized_fees(self, costs_portfolio_db_path: str):
         conn = sqlite3.connect(costs_portfolio_db_path)
@@ -52,8 +52,8 @@ class TestGetBrokerageCosts:
         result = get_brokerage_costs(conn)
         conn.close()
 
-        expected = (1855.00 + 4451.25) + (4.50 + 3.25)
-        assert result["cumulative_total"] == expected
+        # trade_events: 1.85 + 4.45 = 6.30, realized_gains: 4.50 + 3.25 = 7.75
+        assert result["cumulative_total"] == 14.05
 
     def test_handles_missing_realized_gains_table(self, performance_portfolio_db_path: str):
         """When realized_gains table doesn't exist, graceful degradation."""
@@ -67,8 +67,8 @@ class TestGetBrokerageCosts:
 
 
 class TestGetApiCosts:
-    def test_returns_per_model_costs(self, performance_supervisor_db_path: str):
-        conn = sqlite3.connect(performance_supervisor_db_path)
+    def test_returns_per_model_costs(self, costs_portfolio_db_path: str):
+        conn = sqlite3.connect(costs_portfolio_db_path)
         conn.row_factory = sqlite3.Row
         result = get_api_costs(conn)
         conn.close()
@@ -78,27 +78,32 @@ class TestGetApiCosts:
         assert "claude-sonnet" in model_ids
         assert "gpt-4o" in model_ids
 
-    def test_cumulative_total(self, performance_supervisor_db_path: str):
-        conn = sqlite3.connect(performance_supervisor_db_path)
+    def test_cumulative_total(self, costs_portfolio_db_path: str):
+        conn = sqlite3.connect(costs_portfolio_db_path)
         conn.row_factory = sqlite3.Row
         result = get_api_costs(conn)
         conn.close()
 
-        # claude-sonnet: 3 * 0.50 = 1.50, gpt-4o: 2 * 0.80 = 1.60
+        # arena_decisions: claude-sonnet cost_usd=1.50, gpt-4o cost_usd=1.60
         assert result["cumulative_total"] == 1.50 + 1.60
 
-    def test_empty_arena_decisions(self, supervisor_db_path: str):
-        """Supervisor DB without arena tables returns empty costs."""
-        conn = sqlite3.connect(supervisor_db_path)
-        conn.row_factory = sqlite3.Row
-        # Base supervisor DB doesn't have arena_decisions table
-        try:
-            result = get_api_costs(conn)
-            # If table exists but empty
-            assert result["cumulative_total"] == 0.0
-        except sqlite3.OperationalError:
-            pass  # Table doesn't exist — expected
+    def test_empty_arena_decisions(self, tmp_path):
+        """Portfolio DB with empty arena_decisions returns zero costs."""
+        import sqlite3 as _sqlite3
+        db_file = tmp_path / "empty_arena.db"
+        conn = _sqlite3.connect(str(db_file))
+        conn.execute("""
+            CREATE TABLE arena_decisions (
+                id TEXT PRIMARY KEY, session_id TEXT, model_id TEXT,
+                provider TEXT, trigger TEXT, decision_count INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0.0, created_at TEXT
+            )
+        """)
+        conn.commit()
+        conn.row_factory = _sqlite3.Row
+        result = get_api_costs(conn)
         conn.close()
+        assert result["cumulative_total"] == 0.0
 
 
 class TestGetTotalPortfolioReturn:
@@ -135,11 +140,9 @@ class TestCostsEndpoint:
     def test_returns_200_with_all_data(
         self, client: TestClient,
         costs_portfolio_db_path: str,
-        performance_supervisor_db_path: str,
     ):
         with (
             patch("src.config.settings.portfolio_db_path", costs_portfolio_db_path),
-            patch("src.config.settings.supervisor_db_path", performance_supervisor_db_path),
         ):
             resp = client.get("/api/costs")
 
@@ -151,7 +154,7 @@ class TestCostsEndpoint:
         assert data["brokerage_error"] is None
         assert len(data["brokerage"]["trades"]) == 2
 
-        # API costs section
+        # API costs section (from portfolio DB arena_decisions)
         assert data["api_costs"] is not None
         assert data["api_costs_error"] is None
         assert len(data["api_costs"]["per_model"]) == 2
@@ -170,11 +173,9 @@ class TestCostsEndpoint:
 
     def test_returns_200_with_no_portfolio_db(
         self, client: TestClient,
-        performance_supervisor_db_path: str,
     ):
         with (
             patch("src.config.settings.portfolio_db_path", ""),
-            patch("src.config.settings.supervisor_db_path", performance_supervisor_db_path),
         ):
             resp = client.get("/api/costs")
 
@@ -184,31 +185,29 @@ class TestCostsEndpoint:
         assert data["brokerage"] is None
         assert "not accessible" in data["brokerage_error"]
         assert data["portfolio_return"] is None
-        # API costs should still work
-        assert data["api_costs"] is not None
+        # API costs also from portfolio DB, so should be unavailable
+        assert data["api_costs"] is None
+        assert "not accessible" in data["api_costs_error"]
 
-    def test_returns_200_with_no_supervisor_db(
+    def test_returns_200_with_portfolio_db_only(
         self, client: TestClient,
         costs_portfolio_db_path: str,
     ):
         with (
             patch("src.config.settings.portfolio_db_path", costs_portfolio_db_path),
-            patch("src.config.settings.supervisor_db_path", ""),
         ):
             resp = client.get("/api/costs")
 
         assert resp.status_code == 200
         data = resp.json()
 
-        assert data["api_costs"] is None
-        assert "not accessible" in data["api_costs_error"]
-        # Brokerage should still work
+        # Both brokerage and API costs come from portfolio DB
         assert data["brokerage"] is not None
+        assert data["api_costs"] is not None
 
     def test_returns_200_with_no_dbs(self, client: TestClient):
         with (
             patch("src.config.settings.portfolio_db_path", ""),
-            patch("src.config.settings.supervisor_db_path", ""),
         ):
             resp = client.get("/api/costs")
 
@@ -225,7 +224,6 @@ class TestCostsEndpoint:
     def test_cost_per_trade_none_with_zero_trades(self, client: TestClient):
         with (
             patch("src.config.settings.portfolio_db_path", ""),
-            patch("src.config.settings.supervisor_db_path", ""),
         ):
             resp = client.get("/api/costs")
 
@@ -236,11 +234,9 @@ class TestCostsEndpoint:
     def test_roi_metrics_present(
         self, client: TestClient,
         costs_portfolio_db_path: str,
-        performance_supervisor_db_path: str,
     ):
         with (
             patch("src.config.settings.portfolio_db_path", costs_portfolio_db_path),
-            patch("src.config.settings.supervisor_db_path", performance_supervisor_db_path),
         ):
             resp = client.get("/api/costs")
 

@@ -60,18 +60,17 @@ def _query_costs() -> dict:
             finally:
                 conn.close()
 
-    # --- Supervisor DB: API costs from arena_decisions ---
+    # --- Portfolio DB: API costs from arena_decisions (in portfolio.db) ---
     api_costs: dict | None = None
-    supervisor_path = settings.supervisor_db_path
-    if not supervisor_path:
+    if not portfolio_path:
         result["api_costs"] = None
-        result["api_costs_error"] = "michael_supervisor.db not accessible: path not configured"
+        result["api_costs_error"] = "portfolio.db not accessible: path not configured"
     else:
         try:
-            conn = get_db_connection(supervisor_path)
+            conn = get_db_connection(portfolio_path)
         except Exception as exc:
             result["api_costs"] = None
-            result["api_costs_error"] = f"michael_supervisor.db not accessible: {exc}"
+            result["api_costs_error"] = f"portfolio.db not accessible: {exc}"
             conn = None
 
         if conn is not None:

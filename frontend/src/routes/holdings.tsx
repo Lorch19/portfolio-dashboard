@@ -24,9 +24,23 @@ function HoldingsPage() {
     )
   }
 
+  const summary = data?.portfolio_summary
+
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-xl font-semibold">Holdings</h1>
+
+      {/* Portfolio Summary Header */}
+      {summary && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <SummaryCard label="Total Value" value={summary.total_value != null ? `$${summary.total_value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"} />
+          <SummaryCard label="Cash" value={summary.cash_pct != null ? `${summary.cash_pct}%` : "—"} subtext={summary.cash != null ? `$${summary.cash.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : undefined} />
+          <SummaryCard label="Invested" value={summary.invested_pct != null ? `${summary.invested_pct}%` : "—"} />
+          <SummaryCard label="Positions" value={String(summary.positions_count ?? "—")} />
+          <SummaryCard label="Regime" value={summary.regime ?? "—"} />
+          <SummaryCard label="Heat" value={summary.portfolio_heat != null ? `${summary.portfolio_heat}%` : "—"} />
+        </div>
+      )}
 
       {data?.message && (
         <p className="text-sm text-muted-foreground">{data.message}</p>
@@ -51,6 +65,16 @@ function HoldingsPage() {
           <ErrorCard error={`Risk data unavailable: ${data.risk_data_error}`} onRetry={() => refetch()} />
         </div>
       )}
+    </div>
+  )
+}
+
+function SummaryCard({ label, value, subtext }: { label: string; value: string; subtext?: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-lg font-bold">{value}</p>
+      {subtext && <p className="text-xs text-muted-foreground">{subtext}</p>}
     </div>
   )
 }

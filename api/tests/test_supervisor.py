@@ -49,7 +49,7 @@ class TestGetShadowObserverEvents:
         db_file = tmp_path / "empty.db"
         conn = sqlite3.connect(str(db_file))
         conn.execute(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, source TEXT, event_type TEXT, data TEXT, created_at TEXT)"
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp TEXT, source TEXT, event_type TEXT, strategy_id TEXT, payload TEXT, processed INTEGER DEFAULT 0, created_at TEXT)"
         )
         conn.row_factory = sqlite3.Row
         events = get_shadow_observer_events(conn)
@@ -82,10 +82,10 @@ class TestGetHoldPointStatus:
         db_file = tmp_path / "pause.db"
         conn = sqlite3.connect(str(db_file))
         conn.execute(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, source TEXT, event_type TEXT, data TEXT, created_at TEXT)"
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp TEXT, source TEXT, event_type TEXT, strategy_id TEXT, payload TEXT, processed INTEGER DEFAULT 0, created_at TEXT)"
         )
         conn.execute(
-            "INSERT INTO events (source, event_type, data, created_at) VALUES ('guardian', 'drawdown_pause', '{}', '2026-04-04T10:00:00Z')"
+            "INSERT INTO events (source, event_type, payload, created_at) VALUES ('guardian', 'drawdown_pause', '{}', '2026-04-04T10:00:00Z')"
         )
         conn.row_factory = sqlite3.Row
         result = get_hold_point_status(conn)
@@ -96,7 +96,7 @@ class TestGetHoldPointStatus:
         db_file = tmp_path / "active.db"
         conn = sqlite3.connect(str(db_file))
         conn.execute(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, source TEXT, event_type TEXT, data TEXT, created_at TEXT)"
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp TEXT, source TEXT, event_type TEXT, strategy_id TEXT, payload TEXT, processed INTEGER DEFAULT 0, created_at TEXT)"
         )
         conn.row_factory = sqlite3.Row
         result = get_hold_point_status(conn)
@@ -241,10 +241,10 @@ class TestSupervisorEndpoint:
         conn.row_factory = _sqlite3.Row
         # Create health_checks but NOT events table
         conn.execute(
-            "CREATE TABLE health_checks (id INTEGER PRIMARY KEY, agent_name TEXT, status TEXT, details TEXT, checked_at TEXT)"
+            "CREATE TABLE health_checks (id INTEGER PRIMARY KEY, timestamp TEXT, component TEXT, status TEXT, details TEXT, created_at TEXT)"
         )
         conn.execute(
-            "INSERT INTO health_checks (agent_name, status, details, checked_at) VALUES ('Scout', 'healthy', NULL, '2026-04-04T06:30:00Z')"
+            "INSERT INTO health_checks (timestamp, component, status, details, created_at) VALUES ('2026-04-04T06:00:00Z', 'Scout', 'healthy', NULL, '2026-04-04T06:30:00Z')"
         )
         conn.commit()
         conn.close()

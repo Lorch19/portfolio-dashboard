@@ -38,7 +38,7 @@ def get_raw_events(
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     rows = conn.execute(
-        f"SELECT id, source, event_type, data, created_at FROM events {where} ORDER BY created_at DESC LIMIT ?",
+        f"SELECT id, source, event_type, payload, processed, created_at FROM events {where} ORDER BY created_at DESC LIMIT ?",
         [*params, limit],
     ).fetchall()
 
@@ -47,7 +47,8 @@ def get_raw_events(
             "id": row["id"],
             "source": row["source"],
             "event_type": row["event_type"],
-            "payload": row["data"],
+            "payload": row["payload"],
+            "processed": row["processed"],
             "timestamp": row["created_at"],
         }
         for row in rows
@@ -72,15 +73,20 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
     if scout_total == 0:
         return {"date": scan_date, "steps": [], "message": "No pipeline run found for this date"}
 
-    scout_passed_row = conn_portfolio.execute(
-        "SELECT COUNT(*) AS cnt FROM scout_candidates WHERE scan_date = ? AND passed_gates = 1",
+    # Scout passed = total minus distinct tickers rejected
+    scout_rejected_row = conn_portfolio.execute(
+        "SELECT COUNT(DISTINCT ticker) AS cnt FROM rejection_log WHERE scan_date = ?",
         (scan_date,),
     ).fetchone()
-    scout_passed = scout_passed_row["cnt"]
+    scout_passed = max(scout_total - scout_rejected_row["cnt"], 0)
 
     top_tickers = conn_portfolio.execute(
-        "SELECT ticker FROM scout_candidates WHERE scan_date = ? AND passed_gates = 1 LIMIT 10",
-        (scan_date,),
+        """
+        SELECT ticker FROM scout_candidates WHERE scan_date = ?
+        AND ticker NOT IN (SELECT ticker FROM rejection_log WHERE scan_date = ?)
+        LIMIT 10
+        """,
+        (scan_date, scan_date),
     ).fetchall()
 
     steps.append({
@@ -94,9 +100,9 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
         },
     })
 
-    # 2. Guardian decisions
+    # 2. Guardian decisions (decision_date, not scan_date)
     guardian_rows = conn_portfolio.execute(
-        "SELECT ticker, decision, conviction, thesis FROM guardian_decisions WHERE scan_date = ? ORDER BY ticker",
+        "SELECT ticker, decision, proposed_conviction FROM guardian_decisions WHERE decision_date = ? ORDER BY ticker",
         (scan_date,),
     ).fetchall()
 
@@ -108,8 +114,8 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
         {
             "ticker": row["ticker"],
             "decision": row["decision"],
-            "conviction": row["conviction"],
-            "thesis": row["thesis"],
+            "conviction": row["proposed_conviction"],
+            "thesis": None,
         }
         for row in guardian_rows
     ]
@@ -126,19 +132,19 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
         },
     })
 
-    # 3. Trade events
+    # 3. Trade events (timestamp is ISO datetime, event_type not action)
     trade_rows = conn_portfolio.execute(
-        "SELECT ticker, action, shares, price, created_at FROM trade_events WHERE scan_date = ? ORDER BY created_at",
+        "SELECT ticker, event_type, entry_price, timestamp FROM trade_events WHERE timestamp LIKE ? || '%' ORDER BY timestamp",
         (scan_date,),
     ).fetchall()
 
     trade_detail = [
         {
             "ticker": row["ticker"],
-            "action": row["action"],
-            "shares": row["shares"],
-            "price": row["price"],
-            "timestamp": row["created_at"],
+            "action": row["event_type"],
+            "shares": None,
+            "price": row["entry_price"],
+            "timestamp": row["timestamp"],
         }
         for row in trade_rows
     ]
@@ -156,9 +162,9 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
     try:
         snap_row = conn_portfolio.execute(
             """
-            SELECT portfolio_value, spy_value
+            SELECT total_value, sp500_return_pct, alpha_pct, regime
             FROM sim_portfolio_snapshots
-            WHERE snapshot_date = ? AND ticker = '_PORTFOLIO' AND portfolio_value IS NOT NULL
+            WHERE date = ? AND total_value IS NOT NULL
             LIMIT 1
             """,
             (scan_date,),
@@ -168,10 +174,12 @@ def get_pipeline_replay(conn_portfolio: sqlite3.Connection, scan_date: str) -> d
             steps.append({
                 "step": "portfolio_snapshot",
                 "label": "Portfolio Snapshot",
-                "summary": f"Portfolio value: ${snap_row['portfolio_value']:,.2f}" if snap_row["portfolio_value"] else "Snapshot recorded",
+                "summary": f"Portfolio value: ${snap_row['total_value']:,.2f}" if snap_row["total_value"] else "Snapshot recorded",
                 "detail": {
-                    "portfolio_value": snap_row["portfolio_value"],
-                    "spy_value": snap_row["spy_value"],
+                    "portfolio_value": snap_row["total_value"],
+                    "spy_return_pct": snap_row["sp500_return_pct"],
+                    "alpha_pct": snap_row["alpha_pct"],
+                    "regime": snap_row["regime"],
                 },
             })
     except Exception as exc:

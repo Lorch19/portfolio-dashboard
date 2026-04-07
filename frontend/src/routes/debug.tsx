@@ -9,7 +9,7 @@ import {
   AlertTriangle,
   Info,
 } from "lucide-react"
-import { useDebugEvents, useDebugLogs, useDebugReplay } from "@/api/useDebug"
+import { useDebugEvents, useDebugLogs, useDebugReplay, useReplayDates } from "@/api/useDebug"
 import { ErrorCard } from "@/components/ErrorCard"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -379,22 +379,32 @@ function ReplaySection() {
   const navigate = useNavigate({ from: "/debug" })
   const [expandedStep, setExpandedStep] = useState<string | null>(null)
 
-  const { data, isLoading, isError, error, refetch } = useDebugReplay(date, !!date)
+  const { data: datesData } = useReplayDates()
+  const availableDates = datesData?.dates ?? []
+
+  // Auto-select most recent date if none selected
+  const effectiveDate = date || (availableDates.length > 0 ? availableDates[0] : "")
+
+  const { data, isLoading, isError, error, refetch } = useDebugReplay(effectiveDate, !!effectiveDate)
 
   return (
     <div className="space-y-4">
       {/* Date picker */}
-      <div className="flex items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Pipeline Date</label>
-          <input
-            type="date"
+          <select
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            value={date}
+            value={effectiveDate}
             onChange={(e) => navigate({ search: (prev: Record<string, string>) => ({ ...prev, date: e.target.value }) })}
-          />
+          >
+            {availableDates.length === 0 && <option value="">Loading dates...</option>}
+            {availableDates.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
         </div>
-        {date && (
+        {effectiveDate && (
           <Button variant="outline" size="sm" onClick={() => refetch()} className="h-8">
             <RefreshCw className="mr-1 h-3.5 w-3.5" />
             Refresh
@@ -402,10 +412,10 @@ function ReplaySection() {
         )}
       </div>
 
-      {!date && (
+      {!effectiveDate && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            Select a date to view the pipeline replay
+            No pipeline run dates found
           </CardContent>
         </Card>
       )}

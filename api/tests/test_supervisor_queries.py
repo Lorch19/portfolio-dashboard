@@ -24,17 +24,17 @@ class TestGetAgentStatuses:
         conn = _create_in_memory_db()
         statuses = get_agent_statuses(conn)
         for s in statuses:
-            assert "agent_name" in s
+            assert "agent_name" in s  # SQL alias: component AS agent_name
             assert "status" in s
-            assert "last_run" in s
-            assert "checked_at" in s
+            assert "last_run" in s  # SQL alias: timestamp AS last_run
+            assert "checked_at" in s  # SQL alias: created_at AS checked_at
         conn.close()
 
     def test_returns_latest_entry_per_agent(self):
         conn = _create_in_memory_db()
         # Insert a newer entry for Scout
         conn.execute(
-            "INSERT INTO health_checks (agent_name, status, last_run, details, checked_at) "
+            "INSERT INTO health_checks (component, status, timestamp, details, created_at) "
             "VALUES ('Scout', 'degraded', '2026-04-04T07:00:00Z', NULL, '2026-04-04T07:30:00Z')"
         )
         statuses = get_agent_statuses(conn)
@@ -75,8 +75,8 @@ class TestGetRecentAlerts:
         # Add more alert events
         for i in range(5):
             conn.execute(
-                "INSERT INTO events (source, event_type, data, created_at) "
-                f"VALUES ('Scout', 'alert', NULL, '2026-04-04T07:0{i}:00Z')"
+                "INSERT INTO events (source, event_type, payload, created_at) "
+                f"VALUES ('Scout', 'alert', '{{}}', '2026-04-04T07:0{i}:00Z')"
             )
         alerts = get_recent_alerts(conn, limit=3)
         assert len(alerts) == 3
@@ -85,8 +85,8 @@ class TestGetRecentAlerts:
     def test_ordered_by_created_at_desc(self):
         conn = _create_in_memory_db()
         conn.execute(
-            "INSERT INTO events (source, event_type, data, created_at) "
-            "VALUES ('Radar', 'alert', NULL, '2026-04-04T08:00:00Z')"
+            "INSERT INTO events (source, event_type, payload, created_at) "
+            "VALUES ('Radar', 'alert', '{}', '2026-04-04T08:00:00Z')"
         )
         alerts = get_recent_alerts(conn)
         assert alerts[0]["created_at"] == "2026-04-04T08:00:00Z"

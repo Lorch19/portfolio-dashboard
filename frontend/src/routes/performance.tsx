@@ -132,8 +132,8 @@ function PerformanceKpiCards({ summary }: { summary: PortfolioSummary }) {
     },
     {
       label: "Win Rate",
-      value: "—",
-      rawValue: null,
+      value: summary.win_rate != null ? `${(summary.win_rate * 100).toFixed(0)}%` : "—",
+      rawValue: summary.win_rate,
     },
     {
       label: "Total Trades",

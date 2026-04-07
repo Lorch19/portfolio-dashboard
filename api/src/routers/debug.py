@@ -135,6 +135,27 @@ def debug_logs(
     return {"logs": entries, "logs_error": None, "message": None}
 
 
+@router.get("/api/debug/replay/dates")
+def debug_replay_dates():
+    """Return available pipeline run dates (scan_dates with scout data)."""
+    portfolio_path = settings.portfolio_db_path
+    if not portfolio_path:
+        return {"dates": [], "dates_error": "portfolio.db not configured"}
+    try:
+        conn = get_db_connection(portfolio_path)
+    except Exception as exc:
+        return {"dates": [], "dates_error": str(exc)}
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT scan_date FROM scout_candidates ORDER BY scan_date DESC LIMIT 30"
+        ).fetchall()
+        return {"dates": [r["scan_date"] for r in rows], "dates_error": None}
+    except Exception as exc:
+        return {"dates": [], "dates_error": str(exc)}
+    finally:
+        conn.close()
+
+
 @router.get("/api/debug/replay")
 def debug_replay(
     date: str = Query(..., description="Pipeline run date (YYYY-MM-DD)"),

@@ -7,33 +7,31 @@ logger = logging.getLogger(__name__)
 def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
     """Return per-trade brokerage fees and cumulative total.
 
-    Sources:
-    - trade_events.estimated_cost_dollars for all trades
-    - realized_gains.transaction_costs for closed trades (if table exists)
-
-    Returns dict with: trades (list of per-trade dicts), cumulative_fees.
+    Real trade_events schema: timestamp (not scan_date), event_type (not action),
+    entry_price (not price), estimated_cost_dollars, no shares column directly.
     """
     trades: list[dict] = []
     cumulative = 0.0
 
-    # Per-trade costs from trade_events
     rows = conn.execute(
         """
-        SELECT ticker, scan_date, action, shares, price, estimated_cost_dollars
+        SELECT ticker, timestamp, event_type, entry_price, estimated_cost_dollars
         FROM trade_events
-        ORDER BY scan_date DESC, ticker
+        ORDER BY timestamp DESC, ticker
         """
     ).fetchall()
 
     for row in rows:
         cost = row["estimated_cost_dollars"] or 0.0
         cumulative += cost
+        # Extract date from ISO timestamp
+        trade_date = row["timestamp"][:10] if row["timestamp"] else None
         trades.append({
             "ticker": row["ticker"],
-            "trade_date": row["scan_date"],
-            "action": row["action"],
-            "shares": row["shares"],
-            "price": row["price"],
+            "trade_date": trade_date,
+            "action": row["event_type"],
+            "shares": None,
+            "price": row["entry_price"],
             "estimated_cost": round(cost, 2),
         })
 
@@ -41,14 +39,10 @@ def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
     realized_total = 0.0
     try:
         rg_rows = conn.execute(
-            """
-            SELECT COALESCE(SUM(transaction_costs), 0) AS total
-            FROM realized_gains
-            """
+            "SELECT COALESCE(SUM(transaction_costs), 0) AS total FROM realized_gains"
         ).fetchone()
         realized_total = rg_rows["total"] or 0.0
     except sqlite3.OperationalError:
-        # Table doesn't exist yet — graceful degradation
         logger.debug("realized_gains table not found, skipping")
 
     return {
@@ -62,7 +56,7 @@ def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
 def get_api_costs(conn: sqlite3.Connection) -> dict:
     """Return API costs per model and cumulative from arena_decisions.
 
-    Returns dict with: per_model (list of dicts), cumulative_total.
+    Note: arena_decisions is in portfolio.db, not supervisor.db in the real system.
     """
     rows = conn.execute(
         """
@@ -95,15 +89,14 @@ def get_api_costs(conn: sqlite3.Connection) -> dict:
 def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     """Return total portfolio return from sim_portfolio_snapshots.
 
-    Returns dict with: start_value, end_value, total_return, total_return_pct,
-    start_date, end_date, months_running.
-    Returns None if no snapshot data.
+    Real schema: date (not snapshot_date), total_value (not portfolio_value),
+    no ticker column (all rows are portfolio-level).
     """
     row = conn.execute(
         """
-        SELECT MIN(snapshot_date) AS start_date, MAX(snapshot_date) AS end_date
+        SELECT MIN(date) AS start_date, MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
+        WHERE total_value IS NOT NULL
         """
     ).fetchone()
 
@@ -114,30 +107,20 @@ def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     end_date = row["end_date"]
 
     start_row = conn.execute(
-        """
-        SELECT portfolio_value
-        FROM sim_portfolio_snapshots
-        WHERE snapshot_date = ? AND ticker = '_PORTFOLIO' AND portfolio_value IS NOT NULL
-        ORDER BY id ASC LIMIT 1
-        """,
+        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid ASC LIMIT 1",
         (start_date,),
     ).fetchone()
 
     end_row = conn.execute(
-        """
-        SELECT portfolio_value
-        FROM sim_portfolio_snapshots
-        WHERE snapshot_date = ? AND ticker = '_PORTFOLIO' AND portfolio_value IS NOT NULL
-        ORDER BY id DESC LIMIT 1
-        """,
+        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid DESC LIMIT 1",
         (end_date,),
     ).fetchone()
 
     if start_row is None or end_row is None:
         return None
 
-    start_value = start_row["portfolio_value"]
-    end_value = end_row["portfolio_value"]
+    start_value = start_row["total_value"]
+    end_value = end_row["total_value"]
 
     if start_value is None or end_value is None or start_value <= 0:
         return None
@@ -145,13 +128,12 @@ def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     total_return = round(end_value - start_value, 2)
     total_return_pct = round(((end_value - start_value) / start_value) * 100, 2)
 
-    # Compute months running (approximate)
     from datetime import date as date_type
     try:
         d1 = date_type.fromisoformat(start_date)
         d2 = date_type.fromisoformat(end_date)
         days = (d2 - d1).days
-        months_running = max(days / 30.44, 1)  # At least 1 month
+        months_running = max(days / 30.44, 1)
     except (ValueError, TypeError):
         months_running = 1
 

@@ -19,7 +19,7 @@ class TestGetDbConnection:
         try:
             with pytest.raises(sqlite3.OperationalError):
                 conn.execute(
-                    "INSERT INTO health_checks (agent_name, status, checked_at) "
+                    "INSERT INTO health_checks (component, status, created_at) "
                     "VALUES ('test', 'ok', '2026-01-01T00:00:00Z')"
                 )
         finally:
@@ -28,8 +28,8 @@ class TestGetDbConnection:
     def test_row_factory_set(self, supervisor_db_path: str):
         conn = get_db_connection(supervisor_db_path)
         try:
-            row = conn.execute("SELECT agent_name FROM health_checks LIMIT 1").fetchone()
-            assert row["agent_name"] == "Scout"
+            row = conn.execute("SELECT component FROM health_checks LIMIT 1").fetchone()
+            assert row["component"] == "Scout"
         finally:
             conn.close()
 

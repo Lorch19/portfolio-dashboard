@@ -5,7 +5,8 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots
-from src.db.supervisor import get_arena_comparison, get_calibration_scores, get_prediction_accuracy
+from src.db.supervisor import get_calibration_scores, get_prediction_accuracy
+from src.routers.performance import _get_arena_comparison_from_portfolio
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +36,11 @@ class TestGetPortfolioPerformance:
         result = get_portfolio_performance(conn)
         conn.close()
 
-        # SPY: (5200 - 4800) / 4800 * 100 = 8.33
-        assert result["spy_return"] == round(((5200 - 4800) / 4800) * 100, 2)
-        # Alpha = portfolio return - SPY return = 12.5 - 8.33
+        # sp500_return_pct from latest snapshot = 8.33
+        assert result["spy_return"] == 8.33
+        # alpha_pct from latest snapshot = 4.17
         assert result["alpha"] is not None
-        assert result["alpha"] == round(12.5 - result["spy_return"], 2)
+        assert result["alpha"] == 4.17
 
     def test_returns_total_trades(self, performance_portfolio_db_path: str):
         conn = sqlite3.connect(performance_portfolio_db_path)
@@ -47,25 +48,28 @@ class TestGetPortfolioPerformance:
         result = get_portfolio_performance(conn)
         conn.close()
 
-        # 2 trade_events in sample data
-        assert result["total_trades"] == 2
+        # total_trades from latest snapshot row (sim_portfolio_snapshots)
+        assert result["total_trades"] == 6
 
     def test_empty_table_returns_nulls(self, tmp_path):
         db_file = tmp_path / "empty_perf.db"
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT,
-                portfolio_value REAL, spy_value REAL, created_at TEXT
+                date TEXT NOT NULL, strategy_id TEXT NOT NULL DEFAULT 'live',
+                total_value REAL, cash REAL, cash_pct REAL, invested_pct REAL,
+                positions_count INTEGER, portfolio_heat REAL,
+                total_trades INTEGER, closed_trades INTEGER, win_rate REAL,
+                total_pnl_pct REAL, sp500_return_pct REAL, alpha_pct REAL,
+                regime TEXT, created_at TEXT,
+                PRIMARY KEY (date, strategy_id)
             )
         """)
         conn.execute("""
             CREATE TABLE trade_events (
-                id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT,
-                action TEXT, shares REAL, price REAL,
-                estimated_cost_dollars REAL, created_at TEXT
+                id TEXT PRIMARY KEY, timestamp TEXT, source TEXT,
+                event_type TEXT, ticker TEXT, conviction INTEGER,
+                entry_price REAL, estimated_cost_dollars REAL, created_at TEXT
             )
         """)
         conn.commit()
@@ -90,7 +94,7 @@ class TestGetPortfolioSnapshots:
         assert len(result) == 4
         assert result[0]["snapshot_date"] == "2026-01-15"
         assert result[0]["portfolio_value"] == 100000.00
-        assert result[0]["spy_value"] == 4800.00
+        assert result[0]["spy_value"] == 0.0  # sp500_return_pct for first snapshot
         assert result[-1]["snapshot_date"] == "2026-04-04"
         assert result[-1]["portfolio_value"] == 112500.00
 
@@ -108,10 +112,13 @@ class TestGetPortfolioSnapshots:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT,
-                portfolio_value REAL, spy_value REAL, created_at TEXT
+                date TEXT NOT NULL, strategy_id TEXT NOT NULL DEFAULT 'live',
+                total_value REAL, cash REAL, cash_pct REAL, invested_pct REAL,
+                positions_count INTEGER, portfolio_heat REAL,
+                total_trades INTEGER, closed_trades INTEGER, win_rate REAL,
+                total_pnl_pct REAL, sp500_return_pct REAL, alpha_pct REAL,
+                regime TEXT, created_at TEXT,
+                PRIMARY KEY (date, strategy_id)
             )
         """)
         conn.commit()
@@ -171,15 +178,16 @@ class TestGetPredictionAccuracy:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE predictions (
-                id INTEGER PRIMARY KEY, ticker TEXT, scan_date TEXT,
-                predicted_outcome TEXT, probability REAL, eval_window TEXT,
-                resolved INTEGER DEFAULT 0, actual_outcome TEXT, brier_score REAL, created_at TEXT
+                id INTEGER PRIMARY KEY, timestamp TEXT, prediction_type TEXT,
+                ticker TEXT, direction TEXT, confidence REAL, score REAL,
+                strategy_id TEXT DEFAULT 'default', created_at TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE eval_results (
-                id INTEGER PRIMARY KEY, prediction_id INTEGER, eval_window TEXT,
-                hit INTEGER DEFAULT 0, forward_return REAL, evaluated_at TEXT
+                id INTEGER PRIMARY KEY, prediction_id INTEGER, eval_date TEXT,
+                eval_window_days INTEGER, actual_return_pct REAL,
+                direction_correct INTEGER DEFAULT 0, notes TEXT, created_at TEXT
             )
         """)
         conn.commit()
@@ -219,9 +227,9 @@ class TestGetCalibrationScores:
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE predictions (
-                id INTEGER PRIMARY KEY, ticker TEXT, scan_date TEXT,
-                predicted_outcome TEXT, probability REAL, eval_window TEXT,
-                resolved INTEGER DEFAULT 0, actual_outcome TEXT, brier_score REAL, created_at TEXT
+                id INTEGER PRIMARY KEY, timestamp TEXT, prediction_type TEXT,
+                ticker TEXT, direction TEXT, confidence REAL, score REAL,
+                strategy_id TEXT DEFAULT 'default', created_at TEXT
             )
         """)
         conn.commit()
@@ -237,10 +245,10 @@ class TestGetCalibrationScores:
 
 
 class TestGetArenaComparison:
-    def test_returns_per_model_stats(self, performance_supervisor_db_path: str):
-        conn = sqlite3.connect(performance_supervisor_db_path)
+    def test_returns_per_model_stats(self, performance_portfolio_db_path: str):
+        conn = sqlite3.connect(performance_portfolio_db_path)
         conn.row_factory = sqlite3.Row
-        result = get_arena_comparison(conn)
+        result = _get_arena_comparison_from_portfolio(conn)
         conn.close()
 
         assert len(result) == 2  # claude-sonnet and gpt-4o
@@ -248,49 +256,53 @@ class TestGetArenaComparison:
         assert "claude-sonnet" in models
         assert "gpt-4o" in models
 
-    def test_claude_sonnet_stats(self, performance_supervisor_db_path: str):
-        conn = sqlite3.connect(performance_supervisor_db_path)
+    def test_claude_sonnet_stats(self, performance_portfolio_db_path: str):
+        conn = sqlite3.connect(performance_portfolio_db_path)
         conn.row_factory = sqlite3.Row
-        result = get_arena_comparison(conn)
+        result = _get_arena_comparison_from_portfolio(conn)
         conn.close()
 
         sonnet = next(r for r in result if r["model_id"] == "claude-sonnet")
         assert sonnet["session"] == "2026-03-arena-1"
-        assert sonnet["total_decisions"] == 3
-        # forward_returns: 3.5, -2.1, 5.2 -> hits: 2/3
+        # 1 arena_decisions row per model (new schema: decision_count in row, COUNT(*) = 1)
+        assert sonnet["total_decisions"] == 1
+        # forward_returns with t_plus_20: 3.5, -2.1, 5.2 -> hits (>0): 2/3
         assert sonnet["hit_rate"] == round(2 / 3, 4)
-        assert sonnet["total_cost"] == 1.50  # 3 * 0.50
+        assert sonnet["total_cost"] == 1.50
 
-    def test_gpt4o_stats(self, performance_supervisor_db_path: str):
-        conn = sqlite3.connect(performance_supervisor_db_path)
+    def test_gpt4o_stats(self, performance_portfolio_db_path: str):
+        conn = sqlite3.connect(performance_portfolio_db_path)
         conn.row_factory = sqlite3.Row
-        result = get_arena_comparison(conn)
+        result = _get_arena_comparison_from_portfolio(conn)
         conn.close()
 
         gpt = next(r for r in result if r["model_id"] == "gpt-4o")
-        assert gpt["total_decisions"] == 2
-        # forward_returns: 3.5, -2.1 -> hits: 1/2
+        assert gpt["total_decisions"] == 1
+        # forward_returns with t_plus_20: 3.5, -2.1 -> hits (>0): 1/2
         assert gpt["hit_rate"] == 0.5
-        assert gpt["total_cost"] == 1.60  # 2 * 0.80
+        assert gpt["total_cost"] == 1.60
 
     def test_empty_arena_returns_empty_list(self, tmp_path):
         db_file = tmp_path / "empty_arena.db"
         conn = sqlite3.connect(str(db_file))
         conn.execute("""
             CREATE TABLE arena_decisions (
-                id INTEGER PRIMARY KEY, session_id TEXT, model_id TEXT,
-                ticker TEXT, scan_date TEXT, decision TEXT, cost_usd REAL, created_at TEXT
+                id TEXT PRIMARY KEY, session_id TEXT, model_id TEXT,
+                provider TEXT, trigger TEXT, decision_count INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0.0, created_at TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE arena_forward_returns (
-                id INTEGER PRIMARY KEY, arena_decision_id INTEGER,
-                forward_return REAL, evaluated_at TEXT
+                id TEXT PRIMARY KEY, arena_decision_id TEXT, session_id TEXT,
+                model_id TEXT, ticker TEXT, decision_type TEXT,
+                t_plus_5 REAL, t_plus_10 REAL, t_plus_20 REAL,
+                status TEXT DEFAULT 'open', created_at TEXT
             )
         """)
         conn.commit()
         conn.row_factory = sqlite3.Row
-        result = get_arena_comparison(conn)
+        result = _get_arena_comparison_from_portfolio(conn)
         conn.close()
 
         assert result == []
@@ -332,6 +344,7 @@ class TestPerformanceEndpoint:
         assert len(data["snapshots"]) == 4
         assert data["snapshots"][0]["snapshot_date"] == "2026-01-15"
         assert data["snapshots"][0]["portfolio_value"] == 100000.00
+        assert data["snapshots"][0]["spy_value"] == 0.0
 
     def test_portfolio_summary_fields(
         self, client: TestClient, performance_portfolio_db_path: str,
@@ -348,7 +361,7 @@ class TestPerformanceEndpoint:
         assert summary["alpha"] is not None
         assert summary["start_date"] == "2026-01-15"
         assert summary["end_date"] == "2026-04-04"
-        assert summary["total_trades"] == 2
+        assert summary["total_trades"] == 6
 
     def test_prediction_accuracy_fields(
         self, client: TestClient, performance_portfolio_db_path: str,
@@ -411,11 +424,13 @@ class TestPerformanceEndpoint:
         assert "not configured" in data["portfolio_summary_error"]
         assert data["snapshots"] is None
         assert "not configured" in data["snapshots_error"]
+        # Arena is also from portfolio DB, so should be unavailable
+        assert data["arena_comparison"] is None
+        assert "not configured" in data["arena_comparison_error"]
         # Supervisor sections should still work
         assert data["prediction_accuracy"] is not None
         assert data["prediction_accuracy_error"] is None
         assert data["calibration"] is not None
-        assert data["arena_comparison"] is not None
 
     def test_supervisor_db_unavailable_returns_section_errors(
         self, client: TestClient, performance_portfolio_db_path: str, monkeypatch,
@@ -425,16 +440,16 @@ class TestPerformanceEndpoint:
         response = client.get("/api/performance")
         assert response.status_code == 200
         data = response.json()
-        # Portfolio should still work
+        # Portfolio should still work (including arena, which is in portfolio DB)
         assert data["portfolio_summary"] is not None
         assert data["portfolio_summary_error"] is None
+        assert data["arena_comparison"] is not None
+        assert data["arena_comparison_error"] is None
         # Supervisor sections should have errors
         assert data["prediction_accuracy"] is None
         assert "not configured" in data["prediction_accuracy_error"]
         assert data["calibration"] is None
         assert "not configured" in data["calibration_error"]
-        assert data["arena_comparison"] is None
-        assert "not configured" in data["arena_comparison_error"]
 
     def test_empty_tables_return_graceful_nulls(
         self, client: TestClient, tmp_path, monkeypatch,
@@ -444,17 +459,35 @@ class TestPerformanceEndpoint:
         conn = sqlite3.connect(str(portfolio_file))
         conn.execute("""
             CREATE TABLE sim_portfolio_snapshots (
-                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
-                current_stop_level REAL, exit_stage TEXT,
-                portfolio_heat_contribution REAL, sector_concentration_status TEXT,
-                portfolio_value REAL, spy_value REAL, created_at TEXT
+                date TEXT NOT NULL, strategy_id TEXT NOT NULL DEFAULT 'live',
+                total_value REAL, cash REAL, cash_pct REAL, invested_pct REAL,
+                positions_count INTEGER, portfolio_heat REAL,
+                total_trades INTEGER, closed_trades INTEGER, win_rate REAL,
+                total_pnl_pct REAL, sp500_return_pct REAL, alpha_pct REAL,
+                regime TEXT, created_at TEXT,
+                PRIMARY KEY (date, strategy_id)
             )
         """)
         conn.execute("""
             CREATE TABLE trade_events (
-                id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT,
-                action TEXT, shares REAL, price REAL,
-                estimated_cost_dollars REAL, created_at TEXT
+                id TEXT PRIMARY KEY, timestamp TEXT, source TEXT,
+                event_type TEXT, ticker TEXT, conviction INTEGER,
+                entry_price REAL, estimated_cost_dollars REAL, created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE arena_decisions (
+                id TEXT PRIMARY KEY, session_id TEXT, model_id TEXT,
+                provider TEXT, trigger TEXT, decision_count INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0.0, created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE arena_forward_returns (
+                id TEXT PRIMARY KEY, arena_decision_id TEXT, session_id TEXT,
+                model_id TEXT, ticker TEXT, decision_type TEXT,
+                t_plus_5 REAL, t_plus_10 REAL, t_plus_20 REAL,
+                status TEXT DEFAULT 'open', created_at TEXT
             )
         """)
         conn.commit()
@@ -465,29 +498,23 @@ class TestPerformanceEndpoint:
         conn = sqlite3.connect(str(supervisor_file))
         conn.executescript("""
             CREATE TABLE health_checks (
-                id INTEGER PRIMARY KEY, agent_name TEXT, status TEXT,
-                last_run TEXT, details TEXT, checked_at TEXT
+                id INTEGER PRIMARY KEY, timestamp TEXT, component TEXT,
+                status TEXT, details TEXT, created_at TEXT
             );
             CREATE TABLE events (
-                id INTEGER PRIMARY KEY, source TEXT, event_type TEXT,
-                data TEXT, created_at TEXT
+                id INTEGER PRIMARY KEY, timestamp TEXT, source TEXT,
+                event_type TEXT, strategy_id TEXT, payload TEXT,
+                processed INTEGER DEFAULT 0, created_at TEXT
             );
             CREATE TABLE predictions (
-                id INTEGER PRIMARY KEY, ticker TEXT, scan_date TEXT,
-                predicted_outcome TEXT, probability REAL, eval_window TEXT,
-                resolved INTEGER DEFAULT 0, actual_outcome TEXT, brier_score REAL, created_at TEXT
+                id INTEGER PRIMARY KEY, timestamp TEXT, prediction_type TEXT,
+                ticker TEXT, direction TEXT, confidence REAL, score REAL,
+                strategy_id TEXT DEFAULT 'default', created_at TEXT
             );
             CREATE TABLE eval_results (
-                id INTEGER PRIMARY KEY, prediction_id INTEGER, eval_window TEXT,
-                hit INTEGER DEFAULT 0, forward_return REAL, evaluated_at TEXT
-            );
-            CREATE TABLE arena_decisions (
-                id INTEGER PRIMARY KEY, session_id TEXT, model_id TEXT,
-                ticker TEXT, scan_date TEXT, decision TEXT, cost_usd REAL, created_at TEXT
-            );
-            CREATE TABLE arena_forward_returns (
-                id INTEGER PRIMARY KEY, arena_decision_id INTEGER,
-                forward_return REAL, evaluated_at TEXT
+                id INTEGER PRIMARY KEY, prediction_id INTEGER, eval_date TEXT,
+                eval_window_days INTEGER, actual_return_pct REAL,
+                direction_correct INTEGER DEFAULT 0, notes TEXT, created_at TEXT
             );
         """)
         conn.close()

@@ -66,9 +66,9 @@ def test_decisions_predictions(client, decisions_portfolio_db_path, decisions_su
     for key in ["ticker", "scan_date", "predicted_outcome", "probability", "actual_outcome", "resolved", "brier_score"]:
         assert key in first, f"Missing prediction key: {key}"
 
-    # Check resolved predictions have brier_score
-    resolved = [p for p in data["predictions"] if p["resolved"] == 1 and p["brier_score"] is not None]
-    assert len(resolved) > 0
+    # Check predictions with brier_score (score) are present
+    with_score = [p for p in data["predictions"] if p["brier_score"] is not None]
+    assert len(with_score) > 0
 
 
 def test_decisions_counterfactuals(client, decisions_portfolio_db_path, decisions_supervisor_db_path, monkeypatch):
@@ -145,13 +145,23 @@ def test_decisions_empty_tables(client, tmp_path, monkeypatch):
     conn = sqlite3.connect(str(portfolio_db))
     conn.executescript("""
         CREATE TABLE guardian_decisions (
-            id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT, decision TEXT,
-            conviction TEXT, thesis_full_text TEXT, primary_catalyst TEXT,
-            invalidation_trigger TEXT, decision_tier TEXT
+            id TEXT PRIMARY KEY, decision_date TEXT, ticker TEXT, decision TEXT,
+            proposed_conviction INTEGER, created_at TEXT
         );
         CREATE TABLE rejection_log (
-            id INTEGER PRIMARY KEY, scan_date TEXT, ticker TEXT,
-            rejection_gate TEXT, rejection_reason TEXT, forward_return_pct REAL
+            id TEXT PRIMARY KEY, scan_date TEXT, ticker TEXT,
+            rejected_at_gate TEXT, rejection_reason TEXT, t_plus_20 REAL,
+            created_at TEXT
+        );
+        CREATE TABLE trade_events (
+            id TEXT PRIMARY KEY, timestamp TEXT, source TEXT, event_type TEXT,
+            ticker TEXT, thesis_full_text TEXT, primary_catalyst TEXT,
+            invalidation_trigger TEXT, decision_tier TEXT, conviction INTEGER,
+            entry_price REAL, estimated_cost_dollars REAL, created_at TEXT
+        );
+        CREATE TABLE scout_candidates (
+            id TEXT PRIMARY KEY, scan_date TEXT, ticker TEXT,
+            fundamental_score INTEGER, created_at TEXT
         );
     """)
     conn.close()
@@ -160,9 +170,9 @@ def test_decisions_empty_tables(client, tmp_path, monkeypatch):
     conn = sqlite3.connect(str(supervisor_db))
     conn.executescript("""
         CREATE TABLE predictions (
-            id INTEGER PRIMARY KEY, ticker TEXT, scan_date TEXT,
-            predicted_outcome TEXT, probability REAL, resolved INTEGER,
-            actual_outcome TEXT, brier_score REAL
+            id INTEGER PRIMARY KEY, timestamp TEXT, prediction_type TEXT,
+            ticker TEXT, direction TEXT, confidence REAL, score REAL,
+            strategy_id TEXT DEFAULT 'default', created_at TEXT
         );
     """)
     conn.close()

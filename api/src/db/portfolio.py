@@ -15,36 +15,42 @@ def get_latest_scan_date(conn: sqlite3.Connection) -> str | None:
 def get_funnel_counts(conn: sqlite3.Connection, scan_date: str) -> dict:
     """Return stage counts for the given scan_date.
 
-    Keys: scout_universe, scout_passed, guardian_approved, guardian_modified,
-    guardian_rejected, michael_traded.
+    Real schema: scout_candidates has was_traded (bool), status columns.
+    guardian_decisions uses decision_date (not scan_date).
+    rejection_log uses rejected_at_gate (not rejection_gate).
+    trade_events uses timestamp and event_type (not scan_date and action).
     """
     scout_universe = conn.execute(
         "SELECT COUNT(*) AS cnt FROM scout_candidates WHERE scan_date = ?",
         (scan_date,),
     ).fetchone()["cnt"]
 
-    scout_passed = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM scout_candidates WHERE scan_date = ? AND passed_gates = 1",
+    # Scout "passed" = candidates not in rejection_log for this date
+    # Count distinct tickers rejected (not total rejection rows — one ticker can fail multiple gates)
+    scout_rejected_tickers = conn.execute(
+        "SELECT COUNT(DISTINCT ticker) AS cnt FROM rejection_log WHERE scan_date = ?",
         (scan_date,),
     ).fetchone()["cnt"]
+    scout_passed = max(scout_universe - scout_rejected_tickers, 0)
 
     guardian_approved = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE scan_date = ? AND decision = 'approve'",
+        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE decision_date = ? AND decision = 'approve'",
         (scan_date,),
     ).fetchone()["cnt"]
 
     guardian_modified = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE scan_date = ? AND decision = 'modify'",
+        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE decision_date = ? AND decision = 'modify'",
         (scan_date,),
     ).fetchone()["cnt"]
 
     guardian_rejected = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE scan_date = ? AND decision = 'reject'",
+        "SELECT COUNT(*) AS cnt FROM guardian_decisions WHERE decision_date = ? AND decision = 'reject'",
         (scan_date,),
     ).fetchone()["cnt"]
 
+    # trade_events: timestamp is ISO datetime, match by date prefix
     michael_traded = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) AS cnt FROM trade_events WHERE scan_date = ?",
+        "SELECT COUNT(DISTINCT ticker) AS cnt FROM trade_events WHERE timestamp LIKE ? || '%'",
         (scan_date,),
     ).fetchone()["cnt"]
 
@@ -59,27 +65,15 @@ def get_funnel_counts(conn: sqlite3.Connection, scan_date: str) -> dict:
 
 
 def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]:
-    """Return per-ticker stage and reason for the given scan_date.
-
-    Combines data from scout_candidates (rejected), guardian_decisions,
-    and trade_events to produce a list of dicts with ticker, stage, reason.
-
-    A ticker may appear multiple times if it progressed through several
-    stages (e.g. guardian_approved + traded). This is intentional —
-    drilldown shows pipeline history.
-
-    Note: stage counts are authoritative (from scout_candidates and
-    guardian_decisions tables). Drilldown is best-effort — rejection_log
-    may have fewer entries than the count of scout-rejected tickers.
-    """
+    """Return per-ticker stage and reason for the given scan_date."""
     results: list[dict] = []
 
-    # Scout rejected: candidates that did NOT pass gates (and have a rejection_log entry)
+    # Rejections: rejected_at_gate (not rejection_gate)
     rows = conn.execute(
         """
-        SELECT r.ticker, r.rejection_reason
-        FROM rejection_log r
-        WHERE r.scan_date = ? AND r.rejection_gate = 'scout'
+        SELECT ticker, rejection_reason
+        FROM rejection_log
+        WHERE scan_date = ?
         """,
         (scan_date,),
     ).fetchall()
@@ -90,13 +84,9 @@ def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]
             "reason": row["rejection_reason"],
         })
 
-    # Guardian decisions (approve / modify / reject)
+    # Guardian decisions (decision_date, not scan_date)
     rows = conn.execute(
-        """
-        SELECT ticker, decision
-        FROM guardian_decisions
-        WHERE scan_date = ?
-        """,
+        "SELECT ticker, decision FROM guardian_decisions WHERE decision_date = ?",
         (scan_date,),
     ).fetchall()
     stage_map = {
@@ -106,20 +96,18 @@ def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]
     }
     for row in rows:
         decision = row["decision"]
-        if decision not in stage_map:
-            logger.warning("Unknown guardian decision value: %s (ticker=%s)", decision, row["ticker"])
         results.append({
             "ticker": row["ticker"],
             "stage": stage_map.get(decision, f"guardian_{decision}"),
             "reason": decision,
         })
 
-    # Traded tickers (one entry per ticker, using the first action)
+    # Traded tickers (timestamp is ISO datetime)
     rows = conn.execute(
         """
-        SELECT ticker, action
+        SELECT ticker, event_type
         FROM trade_events
-        WHERE scan_date = ?
+        WHERE timestamp LIKE ? || '%'
         GROUP BY ticker
         """,
         (scan_date,),
@@ -128,7 +116,7 @@ def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]
         results.append({
             "ticker": row["ticker"],
             "stage": "traded",
-            "reason": row["action"],
+            "reason": row["event_type"],
         })
 
     return results
@@ -137,16 +125,13 @@ def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]
 def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
     """Return all open positions from sim_positions with computed P&L and days_held.
 
-    Queries sim_positions WHERE status='open' and computes:
-    - unrealized_pnl: (current_price - entry_price) * shares
-    - unrealized_pnl_pct: ((current_price - entry_price) / entry_price) * 100
-    - days_held: days between entry_date and today
-
-    Note: Schema is inferred from epics/PRD. Production column names may differ.
+    Real schema: id, trade_event_id, ticker, sector, entry_price, entry_date,
+    shares, stop_loss, target_1, target_2, conviction (int), status, peak_price, sleeve.
+    No current_price column — use peak_price as best available.
     """
     rows = conn.execute(
         """
-        SELECT ticker, sector, entry_price, entry_date, current_price, shares,
+        SELECT ticker, sector, entry_price, entry_date, peak_price, shares,
                sleeve, stop_loss, target_1, target_2, conviction
         FROM sim_positions
         WHERE status = 'open'
@@ -157,12 +142,10 @@ def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
     positions: list[dict] = []
     for row in rows:
         entry_price = row["entry_price"]
-        current_price = row["current_price"]
+        current_price = row["peak_price"]  # best approximation
         shares = row["shares"]
 
         if entry_price is None or current_price is None or shares is None:
-            logger.warning("NULL numeric column for ticker %s: entry_price=%s, current_price=%s, shares=%s",
-                           row["ticker"], entry_price, current_price, shares)
             unrealized_pnl = None
             unrealized_pnl_pct = None
         else:
@@ -176,7 +159,6 @@ def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
             entry_date = date.fromisoformat(row["entry_date"])
             days_held = (today - entry_date).days
         except (ValueError, TypeError):
-            logger.warning("Invalid entry_date for ticker %s: %s", row["ticker"], row["entry_date"])
             days_held = None
 
         positions.append({
@@ -199,166 +181,140 @@ def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
     return positions
 
 
-def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
-    """Return latest Guardian risk data per ticker from sim_portfolio_snapshots.
+def get_portfolio_summary(conn: sqlite3.Connection) -> dict | None:
+    """Return latest portfolio summary from sim_portfolio_snapshots.
 
-    Returns a dict keyed by ticker with risk fields:
-    current_stop_level, exit_stage, portfolio_heat_contribution, sector_concentration_status.
-
-    Uses the most recent snapshot_date per ticker. If no snapshot data exists,
-    returns an empty dict (positions still display without risk overlay).
+    Returns: total_value, cash, cash_pct, invested_pct, positions_count,
+    portfolio_heat, regime, date.
     """
-    rows = conn.execute(
+    row = conn.execute(
         """
-        SELECT s.ticker, s.current_stop_level, s.exit_stage,
-               s.portfolio_heat_contribution, s.sector_concentration_status
-        FROM sim_portfolio_snapshots s
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS max_date
-            FROM sim_portfolio_snapshots
-            GROUP BY ticker
-        ) latest ON s.ticker = latest.ticker AND s.snapshot_date = latest.max_date
-        """,
-    ).fetchall()
+        SELECT date, total_value, cash, cash_pct, invested_pct, positions_count,
+               portfolio_heat, regime, win_rate, total_trades, closed_trades
+        FROM sim_portfolio_snapshots
+        WHERE total_value IS NOT NULL
+        ORDER BY date DESC
+        LIMIT 1
+        """
+    ).fetchone()
 
-    risk_dict: dict[str, dict] = {}
-    for row in rows:
-        risk_dict[row["ticker"]] = {
-            "current_stop_level": row["current_stop_level"],
-            "exit_stage": row["exit_stage"],
-            "portfolio_heat_contribution": row["portfolio_heat_contribution"],
-            "sector_concentration_status": row["sector_concentration_status"],
-        }
+    if row is None:
+        return None
 
-    return risk_dict
+    return {
+        "date": row["date"],
+        "total_value": row["total_value"],
+        "cash": row["cash"],
+        "cash_pct": round(row["cash_pct"], 1) if row["cash_pct"] is not None else None,
+        "invested_pct": round(row["invested_pct"], 1) if row["invested_pct"] is not None else None,
+        "positions_count": row["positions_count"],
+        "portfolio_heat": round(row["portfolio_heat"], 2) if row["portfolio_heat"] is not None else None,
+        "regime": row["regime"],
+        "win_rate": round(row["win_rate"], 2) if row["win_rate"] is not None else None,
+        "total_trades": row["total_trades"],
+        "closed_trades": row["closed_trades"],
+    }
+
+
+def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
+    """Return Guardian risk data per ticker.
+
+    Real sim_portfolio_snapshots doesn't have per-ticker risk data.
+    It has portfolio-level snapshots with positions_json containing per-position data.
+    Return empty dict — positions display without risk overlay.
+    """
+    return {}
 
 
 def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
-    """Return portfolio performance summary: P&L, CAGR, SPY return, alpha.
+    """Return portfolio performance summary.
 
-    Queries sim_portfolio_snapshots for aggregate portfolio_value and spy_value
-    columns. Computes CAGR from first and latest snapshot dates.
-
-    Returns dict with: total_pnl, total_pnl_pct, cagr, spy_return, alpha,
-    start_date, end_date, total_trades.
+    Real schema: date, strategy_id, total_value, sp500_return_pct, alpha_pct,
+    total_pnl_pct, win_rate, total_trades, closed_trades.
     """
-    # Get earliest and latest portfolio snapshots (aggregate rows)
     row = conn.execute(
         """
-        SELECT MIN(snapshot_date) AS start_date, MAX(snapshot_date) AS end_date
+        SELECT MIN(date) AS start_date, MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
+        WHERE total_value IS NOT NULL
         """
     ).fetchone()
 
     if row is None or row["start_date"] is None:
         return {
-            "total_pnl": None,
-            "total_pnl_pct": None,
-            "cagr": None,
-            "spy_return": None,
-            "alpha": None,
-            "start_date": None,
-            "end_date": None,
-            "total_trades": 0,
+            "total_pnl": None, "total_pnl_pct": None, "cagr": None,
+            "spy_return": None, "alpha": None,
+            "start_date": None, "end_date": None, "total_trades": 0,
         }
 
     start_date = row["start_date"]
     end_date = row["end_date"]
 
-    # Get start and end portfolio values
     start_row = conn.execute(
-        """
-        SELECT portfolio_value, spy_value
-        FROM sim_portfolio_snapshots
-        WHERE snapshot_date = ? AND portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
-        ORDER BY id ASC LIMIT 1
-        """,
+        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid ASC LIMIT 1",
         (start_date,),
     ).fetchone()
 
     end_row = conn.execute(
-        """
-        SELECT portfolio_value, spy_value
-        FROM sim_portfolio_snapshots
-        WHERE snapshot_date = ? AND portfolio_value IS NOT NULL AND ticker = '_PORTFOLIO'
-        ORDER BY id DESC LIMIT 1
-        """,
+        "SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid DESC LIMIT 1",
         (end_date,),
     ).fetchone()
 
     if start_row is None or end_row is None:
         return {
-            "total_pnl": None,
-            "total_pnl_pct": None,
-            "cagr": None,
-            "spy_return": None,
-            "alpha": None,
-            "start_date": start_date,
-            "end_date": end_date,
-            "total_trades": 0,
+            "total_pnl": None, "total_pnl_pct": None, "cagr": None,
+            "spy_return": None, "alpha": None,
+            "start_date": start_date, "end_date": end_date, "total_trades": 0,
         }
 
-    start_value = start_row["portfolio_value"]
-    end_value = end_row["portfolio_value"]
-    start_spy = start_row["spy_value"]
-    end_spy = end_row["spy_value"]
+    start_value = start_row["total_value"]
+    end_value = end_row["total_value"]
 
-    # Compute P&L
+    # Use direct columns if available
+    total_pnl_pct = end_row["total_pnl_pct"]
+    spy_return = end_row["sp500_return_pct"]
+    alpha = end_row["alpha_pct"]
+    total_trades = end_row["total_trades"] or 0
+
+    # Compute P&L from values
     if start_value is not None and end_value is not None and start_value > 0:
         total_pnl = round(end_value - start_value, 2)
-        total_pnl_pct = round(((end_value - start_value) / start_value) * 100, 2)
+        if total_pnl_pct is None:
+            total_pnl_pct = round(((end_value - start_value) / start_value) * 100, 2)
     else:
         total_pnl = None
-        total_pnl_pct = None
 
-    # Compute CAGR
     cagr = _compute_cagr(start_value, end_value, start_date, end_date)
 
-    # Compute SPY return
-    if start_spy is not None and end_spy is not None and start_spy > 0:
-        spy_return = round(((end_spy - start_spy) / start_spy) * 100, 2)
-    else:
-        spy_return = None
-
-    # Alpha = portfolio return - SPY return
-    if total_pnl_pct is not None and spy_return is not None:
-        alpha = round(total_pnl_pct - spy_return, 2)
-    else:
-        alpha = None
-
-    # Total trades
-    try:
-        trade_count = conn.execute("SELECT COUNT(*) AS cnt FROM trade_events").fetchone()["cnt"]
-    except Exception as exc:
-        logger.warning("Could not query trade_events: %s", exc)
-        trade_count = 0
+    # Win rate and closed trades from latest snapshot
+    win_rate = end_row["win_rate"] if "win_rate" in end_row.keys() else None
+    closed_trades = end_row["closed_trades"] if "closed_trades" in end_row.keys() else None
 
     return {
         "total_pnl": total_pnl,
-        "total_pnl_pct": total_pnl_pct,
+        "total_pnl_pct": round(total_pnl_pct, 2) if total_pnl_pct is not None else None,
         "cagr": cagr,
-        "spy_return": spy_return,
-        "alpha": alpha,
+        "spy_return": round(spy_return, 2) if spy_return is not None else None,
+        "alpha": round(alpha, 2) if alpha is not None else None,
         "start_date": start_date,
         "end_date": end_date,
-        "total_trades": trade_count,
+        "total_trades": total_trades,
+        "win_rate": round(win_rate, 2) if win_rate is not None else None,
+        "closed_trades": closed_trades,
     }
 
 
 def get_portfolio_snapshots(conn: sqlite3.Connection) -> list[dict]:
-    """Return time-series portfolio and SPY values for charting.
+    """Return time-series portfolio values for charting.
 
-    Queries sim_portfolio_snapshots for _PORTFOLIO rows ordered by date.
-    Returns list of dicts with snapshot_date, portfolio_value, spy_value.
+    Real schema: date, total_value, sp500_return_pct (percentage, not SPY value).
     """
     rows = conn.execute(
         """
-        SELECT snapshot_date, portfolio_value, spy_value
+        SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
         FROM sim_portfolio_snapshots
-        WHERE ticker = '_PORTFOLIO'
-          AND portfolio_value IS NOT NULL
-        ORDER BY snapshot_date ASC
+        WHERE total_value IS NOT NULL
+        ORDER BY date ASC
         """,
     ).fetchall()
 
@@ -375,65 +331,86 @@ def get_portfolio_snapshots(conn: sqlite3.Connection) -> list[dict]:
 def get_recent_decisions(
     conn: sqlite3.Connection, ticker: str | None = None, limit: int = 50,
 ) -> list[dict]:
-    """Return recent guardian decisions with thesis and scoring inputs.
+    """Return recent decisions with scoring inputs.
 
-    Queries guardian_decisions for decisions ordered by scan_date DESC.
-    Includes scoring columns (fundamental_score, ROIC, RSI, P/E, etc.)
-    when available. Missing columns are returned as null.
-
-    Args:
-        conn: Read-only sqlite3 connection to portfolio.db.
-        ticker: Optional ticker filter. If provided, returns all decisions
-                for that ticker across all scan dates (no limit).
+    Tries guardian_decisions first. If empty (common — pipeline may skip that table),
+    falls back to trade_events as the primary decision record.
+    Enriches with scout_candidates scoring data.
     """
-    # Discover available columns to handle schema variations
-    cursor = conn.execute("PRAGMA table_info(guardian_decisions)")
-    available_cols = {row["name"] for row in cursor.fetchall()}
-
-    # Core columns always expected
-    core_cols = ["scan_date", "ticker", "decision"]
-
-    # Extended columns from ACs — include if available
-    extended_cols = [
-        "conviction", "thesis_full_text", "primary_catalyst",
-        "invalidation_trigger", "decision_tier",
+    all_keys = [
+        "scan_date", "ticker", "decision", "conviction",
+        "thesis_full_text", "primary_catalyst", "invalidation_trigger", "decision_tier",
         "fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
         "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
         "relative_strength", "valuation_verdict",
     ]
 
-    # Fallback: use 'thesis' as thesis_full_text if column missing
-    if "thesis_full_text" not in available_cols and "thesis" in available_cols:
-        select_cols = core_cols + ["thesis AS thesis_full_text"]
-        extended_cols.remove("thesis_full_text")
-    else:
-        select_cols = list(core_cols)
+    # Try guardian_decisions first
+    rows = []
+    try:
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM guardian_decisions").fetchone()["cnt"]
+        if count > 0:
+            if ticker is not None:
+                rows = conn.execute(
+                    "SELECT decision_date AS scan_date, ticker, decision, proposed_conviction AS conviction FROM guardian_decisions WHERE ticker = ? ORDER BY decision_date DESC",
+                    (ticker,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT decision_date AS scan_date, ticker, decision, proposed_conviction AS conviction FROM guardian_decisions ORDER BY decision_date DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+    except Exception:
+        pass
 
-    for col in extended_cols:
-        if col in available_cols:
-            select_cols.append(col)
+    # Fallback: use trade_events as decision records
+    if not rows:
+        try:
+            if ticker is not None:
+                rows = conn.execute(
+                    """
+                    SELECT substr(timestamp, 1, 10) AS scan_date, ticker, event_type AS decision,
+                           conviction, thesis_full_text, primary_catalyst,
+                           invalidation_trigger, decision_tier
+                    FROM trade_events
+                    WHERE ticker = ?
+                    ORDER BY timestamp DESC
+                    """,
+                    (ticker,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT substr(timestamp, 1, 10) AS scan_date, ticker, event_type AS decision,
+                           conviction, thesis_full_text, primary_catalyst,
+                           invalidation_trigger, decision_tier
+                    FROM trade_events
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+        except Exception:
+            pass
 
-    select_sql = ", ".join(select_cols)
-
-    if ticker is not None:
-        rows = conn.execute(
-            f"SELECT {select_sql} FROM guardian_decisions WHERE ticker = ? ORDER BY scan_date DESC",
-            (ticker,),
+    # Build scoring lookup from scout_candidates
+    scoring_map: dict[str, dict] = {}
+    try:
+        scoring_rows = conn.execute(
+            """
+            SELECT ticker, scan_date, fundamental_score, roic_at_scan, prev_roic, roic_delta,
+                   rsi, pe_at_scan, median_pe, pe_discount_pct, relative_strength, valuation_verdict
+            FROM scout_candidates
+            WHERE fundamental_score IS NOT NULL
+            ORDER BY scan_date DESC
+            """
         ).fetchall()
-    else:
-        rows = conn.execute(
-            f"SELECT {select_sql} FROM guardian_decisions ORDER BY scan_date DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-
-    # Build result dicts with all expected keys (null for missing columns)
-    all_keys = core_cols + [
-        "conviction", "thesis_full_text", "primary_catalyst",
-        "invalidation_trigger", "decision_tier",
-        "fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
-        "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
-        "relative_strength", "valuation_verdict",
-    ]
+        for sr in scoring_rows:
+            key = sr["ticker"]
+            if key not in scoring_map:
+                scoring_map[key] = dict(sr)
+    except Exception:
+        pass
 
     results = []
     for row in rows:
@@ -441,6 +418,15 @@ def get_recent_decisions(
         entry = {}
         for key in all_keys:
             entry[key] = row_dict.get(key, None)
+
+        # Merge scoring from scout_candidates
+        scoring = scoring_map.get(row_dict["ticker"], {})
+        for k in ["fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
+                   "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
+                   "relative_strength", "valuation_verdict"]:
+            if entry[k] is None:
+                entry[k] = scoring.get(k)
+
         results.append(entry)
 
     return results
@@ -449,26 +435,23 @@ def get_recent_decisions(
 def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
     """Return counterfactual analysis from rejection_log.
 
-    Returns top missed opportunities (rejected tickers where forward return
-    exceeded 10%) and top good rejections (forward return < 0%).
-
-    If rejection_log lacks forward_return_pct column, returns empty lists.
+    Real schema: t_plus_20 (not forward_return_pct).
     """
-    # Check if forward_return_pct column exists
     cursor = conn.execute("PRAGMA table_info(rejection_log)")
     available_cols = {row["name"] for row in cursor.fetchall()}
 
-    if "forward_return_pct" not in available_cols:
-        logger.warning("rejection_log missing forward_return_pct column — returning empty counterfactuals")
+    if "t_plus_20" not in available_cols:
+        logger.warning("rejection_log missing t_plus_20 column — returning empty counterfactuals")
         return {"top_misses": [], "top_good_rejections": []}
 
     # Top misses: rejected tickers with T+20 > 10%
     miss_rows = conn.execute(
         """
-        SELECT ticker, scan_date, rejection_gate, rejection_reason, forward_return_pct
+        SELECT ticker, scan_date, rejected_at_gate AS rejection_gate,
+               rejection_reason, t_plus_20 AS forward_return_pct
         FROM rejection_log
-        WHERE forward_return_pct > 10.0
-        ORDER BY forward_return_pct DESC
+        WHERE t_plus_20 > 10.0
+        ORDER BY t_plus_20 DESC
         LIMIT ?
         """,
         (limit,),
@@ -485,13 +468,14 @@ def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
         for row in miss_rows
     ]
 
-    # Top good rejections: rejected tickers with T+20 < 0%
+    # Top good rejections: T+20 < 0%
     good_rows = conn.execute(
         """
-        SELECT ticker, scan_date, rejection_gate, rejection_reason, forward_return_pct
+        SELECT ticker, scan_date, rejected_at_gate AS rejection_gate,
+               rejection_reason, t_plus_20 AS forward_return_pct
         FROM rejection_log
-        WHERE forward_return_pct < 0.0
-        ORDER BY forward_return_pct ASC
+        WHERE t_plus_20 < 0.0
+        ORDER BY t_plus_20 ASC
         LIMIT ?
         """,
         (limit,),

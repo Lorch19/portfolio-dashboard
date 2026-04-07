@@ -32,10 +32,12 @@ vi.mock("@tanstack/react-router", () => ({
 const mockUseDebugEvents = vi.fn()
 const mockUseDebugLogs = vi.fn()
 const mockUseDebugReplay = vi.fn()
+const mockUseReplayDates = vi.fn()
 vi.mock("@/api/useDebug", () => ({
   useDebugEvents: (...args: unknown[]) => mockUseDebugEvents(...args),
   useDebugLogs: (...args: unknown[]) => mockUseDebugLogs(...args),
   useDebugReplay: (...args: unknown[]) => mockUseDebugReplay(...args),
+  useReplayDates: () => mockUseReplayDates(),
 }))
 
 import { DebugPageComponent } from "./debug"
@@ -96,6 +98,7 @@ beforeEach(() => {
   mockUseDebugEvents.mockReturnValue(hookResult(MOCK_EVENTS))
   mockUseDebugLogs.mockReturnValue(hookResult(MOCK_LOGS))
   mockUseDebugReplay.mockReturnValue(hookResult(null, { isLoading: false }))
+  mockUseReplayDates.mockReturnValue(hookResult({ dates: ["2026-04-05", "2026-04-01", "2026-03-25"], dates_error: null }))
 })
 
 describe("DebugPage", () => {
@@ -224,11 +227,12 @@ describe("Replay sub-tab", () => {
     expect(screen.getByText("No pipeline run found for this date")).toBeInTheDocument()
   })
 
-  it("shows prompt when no date selected", () => {
+  it("shows no-data message when no pipeline dates exist", () => {
     mockUseSearch.mockReturnValue({ tab: "replay", source: "", type: "", since: "", agent: "", date: "", severity: "" })
+    mockUseReplayDates.mockReturnValue(hookResult({ dates: [], dates_error: null }))
     mockUseDebugReplay.mockReturnValue(hookResult(null, { isLoading: false }))
     render(<DebugPageComponent />, { wrapper: createWrapper() })
-    expect(screen.getByText("Select a date to view the pipeline replay")).toBeInTheDocument()
+    expect(screen.getByText("No pipeline run dates found")).toBeInTheDocument()
   })
 
   it("expands step to show detail", async () => {

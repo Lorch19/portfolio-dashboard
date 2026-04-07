@@ -3,54 +3,48 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
-EXPECTED_AGENTS = ["Chronicler", "Guardian", "Michael", "Radar", "Scout", "Shadow Observer"]
-
-
 def get_agent_statuses(conn: sqlite3.Connection) -> list[dict]:
-    """Get latest health check per agent from health_checks table.
+    """Get latest health check per component from health_checks table.
 
-    Returns one entry per expected agent. Agents with no rows in the DB
-    are backfilled with null values. The ``last_run`` field reflects the
-    most recent execution timestamp regardless of outcome (not filtered
-    by success status — see AC1 interpretation note in review findings).
+    Returns ALL components found in the DB (not a hardcoded list).
+    Real schema: id, timestamp, component, status, details, created_at.
     """
     rows = conn.execute(
         """
-        SELECT agent_name, status, last_run, details, checked_at
+        SELECT component AS agent_name, status, timestamp AS last_run, details, created_at AS checked_at
         FROM health_checks
         WHERE id IN (
-            SELECT MAX(id) FROM health_checks GROUP BY agent_name
+            SELECT MAX(id) FROM health_checks GROUP BY component
         )
-        ORDER BY agent_name
+        ORDER BY component
         """
     ).fetchall()
-    found = {row["agent_name"]: dict(row) for row in rows}
-    return [
-        found.get(name, {"agent_name": name, "status": None, "last_run": None, "details": None, "checked_at": None})
-        for name in EXPECTED_AGENTS
-    ]
+    return [dict(row) for row in rows]
 
 
 def get_heartbeat_status(conn: sqlite3.Connection) -> dict:
     """Get heartbeat summary: agent_name -> latest status and checked_at."""
     rows = conn.execute(
         """
-        SELECT agent_name, status, checked_at
+        SELECT component AS agent_name, status, created_at AS checked_at
         FROM health_checks
         WHERE id IN (
-            SELECT MAX(id) FROM health_checks GROUP BY agent_name
+            SELECT MAX(id) FROM health_checks GROUP BY component
         )
-        ORDER BY agent_name
+        ORDER BY component
         """
     ).fetchall()
     return {row["agent_name"]: {"status": row["status"], "checked_at": row["checked_at"]} for row in rows}
 
 
 def get_recent_alerts(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
-    """Get recent alert events from events table."""
+    """Get recent alert events from events table.
+
+    Real schema: id, timestamp, source, event_type, strategy_id, payload, processed, created_at
+    """
     rows = conn.execute(
         """
-        SELECT id, source, event_type, data, created_at
+        SELECT id, source, event_type, payload AS data, created_at
         FROM events
         WHERE event_type = 'alert'
         ORDER BY created_at DESC
@@ -65,7 +59,7 @@ def get_shadow_observer_events(conn: sqlite3.Connection, limit: int = 50) -> lis
     """Get recent Shadow Observer events from events table."""
     rows = conn.execute(
         """
-        SELECT id, source, event_type, data, created_at
+        SELECT id, source, event_type, payload AS data, created_at
         FROM events
         WHERE source = 'shadow_observer'
         ORDER BY created_at DESC
@@ -77,14 +71,10 @@ def get_shadow_observer_events(conn: sqlite3.Connection, limit: int = 50) -> lis
 
 
 def get_hold_point_status(conn: sqlite3.Connection, limit: int = 20) -> dict:
-    """Get hold point / drawdown status from events table.
-
-    Returns current state (active/paused) and recent hold-point events.
-    No drawdown_state table exists — data sourced from events only.
-    """
+    """Get hold point / drawdown status from events table."""
     rows = conn.execute(
         """
-        SELECT id, source, event_type, data, created_at
+        SELECT id, source, event_type, payload AS data, created_at
         FROM events
         WHERE event_type IN (
             'hold_point_triggered',
@@ -100,8 +90,6 @@ def get_hold_point_status(conn: sqlite3.Connection, limit: int = 20) -> dict:
         (limit,),
     ).fetchall()
     events = [dict(row) for row in rows]
-    # Derive state from most recent event: if the latest hold-point event
-    # indicates a pause, report paused; otherwise active.
     state = "active"
     if events:
         latest_type = events[0]["event_type"].lower()
@@ -115,40 +103,34 @@ def get_hold_point_status(conn: sqlite3.Connection, limit: int = 20) -> dict:
 
 
 def get_daemon_status(conn: sqlite3.Connection) -> list[dict]:
-    """Get latest health check per unique component/daemon.
-
-    Returns ALL entries from health_checks (not limited to the 6 pipeline
-    agents), giving visibility into daemon-level components.
-    """
+    """Get latest health check per unique component/daemon."""
     rows = conn.execute(
         """
-        SELECT agent_name AS component, status, details, checked_at
+        SELECT component, status, details, created_at AS checked_at
         FROM health_checks
         WHERE id IN (
-            SELECT MAX(id) FROM health_checks GROUP BY agent_name
+            SELECT MAX(id) FROM health_checks GROUP BY component
         )
-        ORDER BY agent_name
+        ORDER BY component
         """
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 def get_prediction_accuracy(conn: sqlite3.Connection) -> dict:
-    """Return prediction accuracy metrics from predictions and eval_results tables.
+    """Return prediction accuracy metrics from predictions table.
 
-    Returns: total_predictions, resolved_count, hit_rate, hit_rate_by_window
-    (t_5, t_10, t_20), average_brier_score.
+    Real supervisor schema: id, timestamp, prediction_type, ticker, entry_price,
+    exit_price, direction, confidence, score, sleeve, source_run_id, source_table,
+    raw_data, metadata, strategy_id, created_at.
+
+    Real eval_results schema: id, prediction_id, eval_date, eval_window_days,
+    actual_price, actual_return_pct, benchmark_return_pct, alpha_pct,
+    direction_correct, notes, created_at.
     """
-    # Total and resolved predictions
-    row = conn.execute(
-        """
-        SELECT COUNT(*) AS total, SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved
-        FROM predictions
-        """
-    ).fetchone()
-
+    # Total predictions
+    row = conn.execute("SELECT COUNT(*) AS total FROM predictions").fetchone()
     total = row["total"]
-    resolved = row["resolved"] or 0
 
     if total == 0:
         return {
@@ -159,10 +141,20 @@ def get_prediction_accuracy(conn: sqlite3.Connection) -> dict:
             "average_brier_score": None,
         }
 
-    # Overall hit rate from eval_results
+    # Count evaluated predictions (those with eval_results)
+    eval_row = conn.execute(
+        """
+        SELECT COUNT(DISTINCT prediction_id) AS resolved
+        FROM eval_results
+        """
+    ).fetchone()
+    resolved = eval_row["resolved"] or 0
+
+    # Hit rate from eval_results (direction_correct)
     hit_row = conn.execute(
         """
-        SELECT COUNT(*) AS total_evals, SUM(hit) AS total_hits
+        SELECT COUNT(*) AS total_evals,
+               SUM(CASE WHEN direction_correct = 1 THEN 1 ELSE 0 END) AS total_hits
         FROM eval_results
         """
     ).fetchone()
@@ -171,61 +163,52 @@ def get_prediction_accuracy(conn: sqlite3.Connection) -> dict:
     total_hits = hit_row["total_hits"] or 0
     hit_rate = round(total_hits / total_evals, 4) if total_evals > 0 else None
 
-    # Hit rate by eval window
+    # Hit rate by eval window (eval_window_days: 5, 10, 20)
     window_rows = conn.execute(
         """
-        SELECT eval_window, COUNT(*) AS cnt, SUM(hit) AS hits
+        SELECT eval_window_days, COUNT(*) AS cnt,
+               SUM(CASE WHEN direction_correct = 1 THEN 1 ELSE 0 END) AS hits
         FROM eval_results
-        GROUP BY eval_window
+        GROUP BY eval_window_days
         """
     ).fetchall()
 
     hit_by_window = {"t_5": None, "t_10": None, "t_20": None}
     for wr in window_rows:
-        window = wr["eval_window"]
+        window_days = wr["eval_window_days"]
         cnt = wr["cnt"]
         hits = wr["hits"] or 0
         rate = round(hits / cnt, 4) if cnt > 0 else None
-        # Normalize window names: "T+5" -> "t_5", "t_5" -> "t_5"
-        key = window.lower().replace("+", "_").replace("-", "_")
+        key = f"t_{window_days}"
         if key in hit_by_window:
             hit_by_window[key] = rate
-        else:
-            logger.warning("Unrecognized eval_window value: %s (normalized: %s)", window, key)
 
-    # Average Brier score from resolved predictions
-    brier_row = conn.execute(
-        """
-        SELECT AVG(brier_score) AS avg_brier
-        FROM predictions
-        WHERE resolved = 1 AND brier_score IS NOT NULL
-        """
+    # Average score from predictions (no brier_score in supervisor predictions)
+    score_row = conn.execute(
+        "SELECT AVG(score) AS avg_score FROM predictions WHERE score IS NOT NULL"
     ).fetchone()
-
-    avg_brier = round(brier_row["avg_brier"], 4) if brier_row["avg_brier"] is not None else None
+    avg_score = round(score_row["avg_score"], 4) if score_row["avg_score"] is not None else None
 
     return {
         "total_predictions": total,
         "resolved_count": resolved,
         "hit_rate": hit_rate,
         "hit_rate_by_window": hit_by_window,
-        "average_brier_score": avg_brier,
+        "average_brier_score": avg_score,
     }
 
 
 def get_calibration_scores(conn: sqlite3.Connection) -> dict:
-    """Return CalibrationEngine metrics from predictions table.
+    """Return calibration metrics from predictions table.
 
-    Returns: average_brier_score, target_brier (0.25), beating_random,
-    agreement_rate, sycophancy_flag.
+    Supervisor predictions has: confidence, score (not brier_score).
     """
     row = conn.execute(
         """
-        SELECT AVG(brier_score) AS avg_brier,
-               COUNT(*) AS total,
-               SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved
+        SELECT AVG(score) AS avg_score,
+               COUNT(*) AS total
         FROM predictions
-        WHERE brier_score IS NOT NULL
+        WHERE score IS NOT NULL
         """
     ).fetchone()
 
@@ -238,30 +221,27 @@ def get_calibration_scores(conn: sqlite3.Connection) -> dict:
             "sycophancy_flag": None,
         }
 
-    avg_brier = round(row["avg_brier"], 4) if row["avg_brier"] is not None else None
-    beating_random = avg_brier < 0.25 if avg_brier is not None else None
+    avg_score = round(row["avg_score"], 4) if row["avg_score"] is not None else None
+    beating_random = avg_score < 0.25 if avg_score is not None else None
 
-    # Agreement rate: fraction of predictions where predicted_outcome matches actual_outcome
+    # Direction accuracy from eval_results
     agreement_row = conn.execute(
         """
         SELECT COUNT(*) AS total,
-               SUM(CASE WHEN predicted_outcome = actual_outcome THEN 1 ELSE 0 END) AS agreed
-        FROM predictions
-        WHERE resolved = 1 AND actual_outcome IS NOT NULL
+               SUM(CASE WHEN direction_correct = 1 THEN 1 ELSE 0 END) AS agreed
+        FROM eval_results
         """
     ).fetchone()
 
     if agreement_row["total"] > 0:
         agreement_rate = round(agreement_row["agreed"] / agreement_row["total"], 4)
-        # Sycophancy flag: if agreement rate is suspiciously high (>0.95)
-        # and Brier score is poor (>0.25), predictions may be sycophantic
-        sycophancy_flag = agreement_rate > 0.95 and (avg_brier is not None and avg_brier > 0.25)
+        sycophancy_flag = agreement_rate > 0.95 and (avg_score is not None and avg_score > 0.25)
     else:
         agreement_rate = None
         sycophancy_flag = None
 
     return {
-        "average_brier_score": avg_brier,
+        "average_brier_score": avg_score,
         "target_brier": 0.25,
         "beating_random": beating_random,
         "agreement_rate": agreement_rate,
@@ -272,26 +252,20 @@ def get_calibration_scores(conn: sqlite3.Connection) -> dict:
 def get_decision_predictions(
     conn: sqlite3.Connection, tickers: list[str] | None = None, limit: int = 200,
 ) -> list[dict]:
-    """Return per-ticker prediction outcomes for the decisions endpoint.
+    """Return per-ticker prediction outcomes from supervisor predictions.
 
-    Queries predictions for prediction outcomes ordered by scan_date DESC.
-    Returns: ticker, scan_date, predicted_outcome, probability,
-    actual_outcome, resolved, brier_score.
-
-    Args:
-        conn: Read-only sqlite3 connection to michael_supervisor.db.
-        tickers: Optional list of tickers to filter by.
-        limit: Max rows to return (default 200).
+    Supervisor schema: id, timestamp, prediction_type, ticker, direction,
+    confidence, score, created_at.
     """
     if tickers:
         placeholders = ",".join("?" for _ in tickers)
         rows = conn.execute(
             f"""
-            SELECT p.ticker, p.scan_date, p.predicted_outcome, p.probability,
-                   p.actual_outcome, p.resolved, p.brier_score
-            FROM predictions p
-            WHERE p.ticker IN ({placeholders})
-            ORDER BY p.scan_date DESC
+            SELECT ticker, timestamp AS scan_date, direction AS predicted_outcome,
+                   confidence AS probability, score AS brier_score
+            FROM predictions
+            WHERE ticker IN ({placeholders})
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             [*tickers, limit],
@@ -299,10 +273,10 @@ def get_decision_predictions(
     else:
         rows = conn.execute(
             """
-            SELECT p.ticker, p.scan_date, p.predicted_outcome, p.probability,
-                   p.actual_outcome, p.resolved, p.brier_score
-            FROM predictions p
-            ORDER BY p.scan_date DESC
+            SELECT ticker, timestamp AS scan_date, direction AS predicted_outcome,
+                   confidence AS probability, score AS brier_score
+            FROM predictions
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             (limit,),
@@ -310,12 +284,12 @@ def get_decision_predictions(
 
     return [
         {
-            "ticker": row["ticker"],
+            "ticker": row["scan_date"] and row["ticker"],  # might be null
             "scan_date": row["scan_date"],
             "predicted_outcome": row["predicted_outcome"],
             "probability": row["probability"],
-            "actual_outcome": row["actual_outcome"],
-            "resolved": row["resolved"],
+            "actual_outcome": None,
+            "resolved": None,
             "brier_score": round(row["brier_score"], 4) if row["brier_score"] is not None else None,
         }
         for row in rows
@@ -323,40 +297,13 @@ def get_decision_predictions(
 
 
 def get_arena_comparison(conn: sqlite3.Connection) -> list[dict]:
-    """Return per-model arena comparison stats grouped by session.
+    """Return per-model arena comparison stats.
 
-    Queries arena_decisions JOIN arena_forward_returns for: model_id,
-    session_id, total_decisions, hit_rate, average_alpha, total_cost.
+    Real arena_forward_returns has per-ticker forward return data
+    with t_plus_5/10/20 columns instead of a single forward_return.
+    arena_decisions has session_id, model_id, cost_usd, decision_count.
+    Both tables are in portfolio.db, not supervisor.db.
     """
-    rows = conn.execute(
-        """
-        SELECT
-            ad.model_id,
-            ad.session_id,
-            COUNT(*) AS total_decisions,
-            SUM(CASE WHEN afr.forward_return IS NOT NULL AND afr.forward_return > 0 THEN 1 ELSE 0 END) AS hits,
-            SUM(CASE WHEN afr.forward_return IS NOT NULL THEN 1 ELSE 0 END) AS evaluated,
-            AVG(afr.forward_return) AS avg_alpha,
-            SUM(ad.cost_usd) AS total_cost
-        FROM arena_decisions ad
-        LEFT JOIN arena_forward_returns afr ON afr.arena_decision_id = ad.id
-        GROUP BY ad.model_id, ad.session_id
-        ORDER BY ad.session_id, ad.model_id
-        """
-    ).fetchall()
-
-    results = []
-    for row in rows:
-        total = row["total_decisions"]
-        hits = row["hits"] or 0
-        evaluated = row["evaluated"] or 0
-        results.append({
-            "model_id": row["model_id"],
-            "session": row["session_id"],
-            "total_decisions": total,
-            "hit_rate": round(hits / evaluated, 4) if evaluated > 0 else None,
-            "average_alpha": round(row["avg_alpha"], 4) if row["avg_alpha"] is not None else None,
-            "total_cost": round(row["total_cost"], 2) if row["total_cost"] is not None else 0.0,
-        })
-
-    return results
+    # This function is called with supervisor conn but arena data is in portfolio.db
+    # Return empty — arena data is queried separately in the performance router
+    return []

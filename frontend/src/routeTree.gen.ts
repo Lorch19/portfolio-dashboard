@@ -15,12 +15,9 @@ import { Route as HoldingsRouteImport } from './routes/holdings'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as FunnelRouteImport } from './routes/funnel'
 import { Route as DecisionsRouteImport } from './routes/decisions'
+import { Route as DebugRouteImport } from './routes/debug'
 import { Route as CostsRouteImport } from './routes/costs'
-import { Route as DebugRouteRouteImport } from './routes/debug/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DebugReplayRouteImport } from './routes/debug/replay'
-import { Route as DebugLogsRouteImport } from './routes/debug/logs'
-import { Route as DebugEventsRouteImport } from './routes/debug/events'
 
 const SupervisorRoute = SupervisorRouteImport.update({
   id: '/supervisor',
@@ -52,14 +49,14 @@ const DecisionsRoute = DecisionsRouteImport.update({
   path: '/decisions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DebugRoute = DebugRouteImport.update({
+  id: '/debug',
+  path: '/debug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CostsRoute = CostsRouteImport.update({
   id: '/costs',
   path: '/costs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DebugRouteRoute = DebugRouteRouteImport.update({
-  id: '/debug',
-  path: '/debug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -67,114 +64,81 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DebugReplayRoute = DebugReplayRouteImport.update({
-  id: '/replay',
-  path: '/replay',
-  getParentRoute: () => DebugRouteRoute,
-} as any)
-const DebugLogsRoute = DebugLogsRouteImport.update({
-  id: '/logs',
-  path: '/logs',
-  getParentRoute: () => DebugRouteRoute,
-} as any)
-const DebugEventsRoute = DebugEventsRouteImport.update({
-  id: '/events',
-  path: '/events',
-  getParentRoute: () => DebugRouteRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/debug': typeof DebugRouteRouteWithChildren
   '/costs': typeof CostsRoute
+  '/debug': typeof DebugRoute
   '/decisions': typeof DecisionsRoute
   '/funnel': typeof FunnelRoute
   '/health': typeof HealthRoute
   '/holdings': typeof HoldingsRoute
   '/performance': typeof PerformanceRoute
   '/supervisor': typeof SupervisorRoute
-  '/debug/events': typeof DebugEventsRoute
-  '/debug/logs': typeof DebugLogsRoute
-  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/debug': typeof DebugRouteRouteWithChildren
   '/costs': typeof CostsRoute
+  '/debug': typeof DebugRoute
   '/decisions': typeof DecisionsRoute
   '/funnel': typeof FunnelRoute
   '/health': typeof HealthRoute
   '/holdings': typeof HoldingsRoute
   '/performance': typeof PerformanceRoute
   '/supervisor': typeof SupervisorRoute
-  '/debug/events': typeof DebugEventsRoute
-  '/debug/logs': typeof DebugLogsRoute
-  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/debug': typeof DebugRouteRouteWithChildren
   '/costs': typeof CostsRoute
+  '/debug': typeof DebugRoute
   '/decisions': typeof DecisionsRoute
   '/funnel': typeof FunnelRoute
   '/health': typeof HealthRoute
   '/holdings': typeof HoldingsRoute
   '/performance': typeof PerformanceRoute
   '/supervisor': typeof SupervisorRoute
-  '/debug/events': typeof DebugEventsRoute
-  '/debug/logs': typeof DebugLogsRoute
-  '/debug/replay': typeof DebugReplayRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/debug'
     | '/costs'
+    | '/debug'
     | '/decisions'
     | '/funnel'
     | '/health'
     | '/holdings'
     | '/performance'
     | '/supervisor'
-    | '/debug/events'
-    | '/debug/logs'
-    | '/debug/replay'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/debug'
     | '/costs'
+    | '/debug'
     | '/decisions'
     | '/funnel'
     | '/health'
     | '/holdings'
     | '/performance'
     | '/supervisor'
-    | '/debug/events'
-    | '/debug/logs'
-    | '/debug/replay'
   id:
     | '__root__'
     | '/'
-    | '/debug'
     | '/costs'
+    | '/debug'
     | '/decisions'
     | '/funnel'
     | '/health'
     | '/holdings'
     | '/performance'
     | '/supervisor'
-    | '/debug/events'
-    | '/debug/logs'
-    | '/debug/replay'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DebugRouteRoute: typeof DebugRouteRouteWithChildren
   CostsRoute: typeof CostsRoute
+  DebugRoute: typeof DebugRoute
   DecisionsRoute: typeof DecisionsRoute
   FunnelRoute: typeof FunnelRoute
   HealthRoute: typeof HealthRoute
@@ -227,18 +191,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DecisionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/debug': {
+      id: '/debug'
+      path: '/debug'
+      fullPath: '/debug'
+      preLoaderRoute: typeof DebugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/costs': {
       id: '/costs'
       path: '/costs'
       fullPath: '/costs'
       preLoaderRoute: typeof CostsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/debug': {
-      id: '/debug'
-      path: '/debug'
-      fullPath: '/debug'
-      preLoaderRoute: typeof DebugRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -248,50 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/debug/replay': {
-      id: '/debug/replay'
-      path: '/replay'
-      fullPath: '/debug/replay'
-      preLoaderRoute: typeof DebugReplayRouteImport
-      parentRoute: typeof DebugRouteRoute
-    }
-    '/debug/logs': {
-      id: '/debug/logs'
-      path: '/logs'
-      fullPath: '/debug/logs'
-      preLoaderRoute: typeof DebugLogsRouteImport
-      parentRoute: typeof DebugRouteRoute
-    }
-    '/debug/events': {
-      id: '/debug/events'
-      path: '/events'
-      fullPath: '/debug/events'
-      preLoaderRoute: typeof DebugEventsRouteImport
-      parentRoute: typeof DebugRouteRoute
-    }
   }
 }
 
-interface DebugRouteRouteChildren {
-  DebugEventsRoute: typeof DebugEventsRoute
-  DebugLogsRoute: typeof DebugLogsRoute
-  DebugReplayRoute: typeof DebugReplayRoute
-}
-
-const DebugRouteRouteChildren: DebugRouteRouteChildren = {
-  DebugEventsRoute: DebugEventsRoute,
-  DebugLogsRoute: DebugLogsRoute,
-  DebugReplayRoute: DebugReplayRoute,
-}
-
-const DebugRouteRouteWithChildren = DebugRouteRoute._addFileChildren(
-  DebugRouteRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DebugRouteRoute: DebugRouteRouteWithChildren,
   CostsRoute: CostsRoute,
+  DebugRoute: DebugRoute,
   DecisionsRoute: DecisionsRoute,
   FunnelRoute: FunnelRoute,
   HealthRoute: HealthRoute,

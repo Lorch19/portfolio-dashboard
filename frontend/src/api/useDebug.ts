@@ -65,3 +65,17 @@ export function useDebugReplay(date: string, enabled = true) {
     refetchOnWindowFocus: false,
   })
 }
+
+interface ReplayDatesResponse {
+  dates: string[]
+  dates_error: string | null
+}
+
+export function useReplayDates() {
+  return useQuery<ReplayDatesResponse>({
+    queryKey: ["debug-replay-dates"],
+    queryFn: () => apiClient<ReplayDatesResponse>("/api/debug/replay/dates"),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
+}
