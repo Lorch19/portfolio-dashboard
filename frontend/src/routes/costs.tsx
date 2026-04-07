@@ -57,11 +57,6 @@ function formatDollar(value: number | null): string {
     : `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function formatPct(value: number | null): string {
-  if (value == null) return "—"
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`
-}
-
 // --- KPI Cards ---
 
 interface KpiItem {

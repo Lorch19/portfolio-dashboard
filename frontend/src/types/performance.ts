@@ -4,6 +4,7 @@ export interface PortfolioSummary {
   cagr: number | null
   spy_return: number | null
   alpha: number | null
+  win_rate: number | null
   start_date: string | null
   end_date: string | null
   total_trades: number

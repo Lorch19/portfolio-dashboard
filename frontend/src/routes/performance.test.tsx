@@ -54,6 +54,7 @@ const MOCK_DATA: PerformanceResponse = {
     cagr: 14.2,
     spy_return: 8.33,
     alpha: 4.17,
+    win_rate: 0.62,
     start_date: "2026-01-15",
     end_date: "2026-04-04",
     total_trades: 42,

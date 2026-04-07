@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
-export type ChartConfig = {
+type ChartConfig = {
   [k in string]: {
     label?: React.ReactNode
     icon?: React.ComponentType
@@ -113,11 +113,18 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
-}: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
-  Pick<RechartsPrimitive.ContentType<number, string>, "active" | "payload"> & {
+}: {
+    active?: boolean
+    payload?: RechartsPrimitive.TooltipPayloadEntry[]
+    className?: string
     hideLabel?: boolean
     hideIndicator?: boolean
     indicator?: "line" | "dot" | "dashed"
+    label?: React.ReactNode
+    labelFormatter?: (value: React.ReactNode, payload: RechartsPrimitive.TooltipPayloadEntry[]) => React.ReactNode
+    labelClassName?: string
+    formatter?: (value: number | undefined, name: string | undefined, item: RechartsPrimitive.TooltipPayloadEntry, index: number, payload: Record<string, unknown>) => React.ReactNode
+    color?: string
     nameKey?: string
     labelKey?: string
   }) {
@@ -168,7 +175,7 @@ function ChartTooltipContent({
   return (
     <div
       className={cn(
-        "grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl",
+        "grid min-w-[8rem] items-start gap-1.5 rounded-md border border-border/50 bg-card px-2.5 py-1.5 text-xs shadow-xl",
         className
       )}
     >
@@ -181,14 +188,14 @@ function ChartTooltipContent({
 
           return (
             <div
-              key={item.dataKey}
+              key={typeof item.dataKey === "function" ? index : item.dataKey}
               className={cn(
                 "[&>svg]:text-muted-foreground flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5",
                 indicator === "dot" && "items-center"
               )}
             >
               {formatter && item?.value !== undefined && item.name ? (
-                formatter(item.value, item.name, item, index, item.payload)
+                formatter(item.value as number | undefined, item.name as string | undefined, item, index, item.payload as Record<string, unknown>)
               ) : (
                 <>
                   {itemConfig?.icon ? (
@@ -282,5 +289,5 @@ export {
   ChartTooltipContent,
   ChartStyle,
   useChart,
+  type ChartConfig,
 }
-export type { ChartConfig }

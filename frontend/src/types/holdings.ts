@@ -19,9 +19,20 @@ export interface HoldingsPosition {
   sector_concentration_status: string | null
 }
 
+export interface PortfolioHoldingsSummary {
+  total_value: number | null
+  cash: number | null
+  cash_pct: number | null
+  invested_pct: number | null
+  positions_count: number | null
+  regime: string | null
+  portfolio_heat: number | null
+}
+
 export interface HoldingsResponse {
   positions: HoldingsPosition[] | null
   positions_error: string | null
+  portfolio_summary: PortfolioHoldingsSummary | null
   risk_data_error: string | null
   message: string | null
 }

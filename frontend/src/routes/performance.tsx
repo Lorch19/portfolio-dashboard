@@ -658,14 +658,14 @@ function PnlChart({ snapshots }: { snapshots: Snapshot[] }) {
         <Line
           type="monotone"
           dataKey="portfolio_pct"
-          stroke="var(--color-portfolio_value)"
+          stroke="var(--color-portfolio_pct)"
           strokeWidth={2}
           dot={false}
         />
         <Line
           type="monotone"
           dataKey="spy_pct"
-          stroke="var(--color-spy_value)"
+          stroke="var(--color-spy_pct)"
           strokeWidth={2}
           strokeDasharray="5 5"
           dot={false}

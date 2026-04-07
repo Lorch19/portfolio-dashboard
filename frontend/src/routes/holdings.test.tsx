@@ -55,6 +55,7 @@ describe("Holdings tab integration", () => {
     const mockData: HoldingsResponse = {
       positions: null,
       positions_error: "portfolio.db not accessible",
+      portfolio_summary: null,
       risk_data_error: null,
       message: null,
     }
@@ -66,6 +67,7 @@ describe("Holdings tab integration", () => {
     const mockData: HoldingsResponse = {
       positions: mockPositions,
       positions_error: null,
+      portfolio_summary: null,
       risk_data_error: "snapshot table missing",
       message: null,
     }
@@ -91,6 +93,7 @@ describe("Holdings tab integration", () => {
     const mockData: HoldingsResponse = {
       positions: [],
       positions_error: null,
+      portfolio_summary: null,
       risk_data_error: null,
       message: "No open positions",
     }

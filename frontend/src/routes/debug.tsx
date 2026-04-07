@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useState, useMemo } from "react"
 import {
-  Bug,
   RefreshCw,
   ChevronDown,
   ChevronRight,
@@ -12,7 +11,7 @@ import {
 import { useDebugEvents, useDebugLogs, useDebugReplay, useReplayDates } from "@/api/useDebug"
 import { ErrorCard } from "@/components/ErrorCard"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
@@ -83,7 +82,7 @@ function EventsSection() {
   const { data, isLoading, isError, error, refetch } = useDebugEvents(params)
 
   const updateFilter = (key: string, value: string) => {
-    navigate({ search: (prev: Record<string, string>) => ({ ...prev, [key]: value }) })
+    navigate({ search: (prev) => ({ ...prev, [key]: value }) })
   }
 
   return (
@@ -249,7 +248,7 @@ function LogsSection() {
   const { data, isLoading, isError, error, refetch } = useDebugLogs(params)
 
   const updateFilter = (key: string, value: string) => {
-    navigate({ search: (prev: Record<string, string>) => ({ ...prev, [key]: value }) })
+    navigate({ search: (prev) => ({ ...prev, [key]: value }) })
   }
 
   return (
@@ -396,7 +395,7 @@ function ReplaySection() {
           <select
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             value={effectiveDate}
-            onChange={(e) => navigate({ search: (prev: Record<string, string>) => ({ ...prev, date: e.target.value }) })}
+            onChange={(e) => navigate({ search: (prev) => ({ ...prev, date: e.target.value }) })}
           >
             {availableDates.length === 0 && <option value="">Loading dates...</option>}
             {availableDates.map((d) => (
@@ -544,7 +543,7 @@ function DebugPage() {
         value={tab}
         onValueChange={(value: string | number | null) => {
           if (typeof value === "string") {
-            navigate({ search: (prev: Record<string, string>) => ({ ...prev, tab: value }) })
+            navigate({ search: (prev) => ({ ...prev, tab: value }) })
           }
         }}
       >
