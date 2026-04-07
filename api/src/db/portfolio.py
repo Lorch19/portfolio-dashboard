@@ -346,6 +346,174 @@ def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
     }
 
 
+def get_portfolio_snapshots(conn: sqlite3.Connection) -> list[dict]:
+    """Return time-series portfolio and SPY values for charting.
+
+    Queries sim_portfolio_snapshots for _PORTFOLIO rows ordered by date.
+    Returns list of dicts with snapshot_date, portfolio_value, spy_value.
+    """
+    rows = conn.execute(
+        """
+        SELECT snapshot_date, portfolio_value, spy_value
+        FROM sim_portfolio_snapshots
+        WHERE ticker = '_PORTFOLIO'
+          AND portfolio_value IS NOT NULL
+        ORDER BY snapshot_date ASC
+        """,
+    ).fetchall()
+
+    return [
+        {
+            "snapshot_date": row["snapshot_date"],
+            "portfolio_value": row["portfolio_value"],
+            "spy_value": row["spy_value"],
+        }
+        for row in rows
+    ]
+
+
+def get_recent_decisions(
+    conn: sqlite3.Connection, ticker: str | None = None, limit: int = 50,
+) -> list[dict]:
+    """Return recent guardian decisions with thesis and scoring inputs.
+
+    Queries guardian_decisions for decisions ordered by scan_date DESC.
+    Includes scoring columns (fundamental_score, ROIC, RSI, P/E, etc.)
+    when available. Missing columns are returned as null.
+
+    Args:
+        conn: Read-only sqlite3 connection to portfolio.db.
+        ticker: Optional ticker filter. If provided, returns all decisions
+                for that ticker across all scan dates (no limit).
+    """
+    # Discover available columns to handle schema variations
+    cursor = conn.execute("PRAGMA table_info(guardian_decisions)")
+    available_cols = {row["name"] for row in cursor.fetchall()}
+
+    # Core columns always expected
+    core_cols = ["scan_date", "ticker", "decision"]
+
+    # Extended columns from ACs — include if available
+    extended_cols = [
+        "conviction", "thesis_full_text", "primary_catalyst",
+        "invalidation_trigger", "decision_tier",
+        "fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
+        "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
+        "relative_strength", "valuation_verdict",
+    ]
+
+    # Fallback: use 'thesis' as thesis_full_text if column missing
+    if "thesis_full_text" not in available_cols and "thesis" in available_cols:
+        select_cols = core_cols + ["thesis AS thesis_full_text"]
+        extended_cols.remove("thesis_full_text")
+    else:
+        select_cols = list(core_cols)
+
+    for col in extended_cols:
+        if col in available_cols:
+            select_cols.append(col)
+
+    select_sql = ", ".join(select_cols)
+
+    if ticker is not None:
+        rows = conn.execute(
+            f"SELECT {select_sql} FROM guardian_decisions WHERE ticker = ? ORDER BY scan_date DESC",
+            (ticker,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT {select_sql} FROM guardian_decisions ORDER BY scan_date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    # Build result dicts with all expected keys (null for missing columns)
+    all_keys = core_cols + [
+        "conviction", "thesis_full_text", "primary_catalyst",
+        "invalidation_trigger", "decision_tier",
+        "fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
+        "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
+        "relative_strength", "valuation_verdict",
+    ]
+
+    results = []
+    for row in rows:
+        row_dict = dict(row)
+        entry = {}
+        for key in all_keys:
+            entry[key] = row_dict.get(key, None)
+        results.append(entry)
+
+    return results
+
+
+def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
+    """Return counterfactual analysis from rejection_log.
+
+    Returns top missed opportunities (rejected tickers where forward return
+    exceeded 10%) and top good rejections (forward return < 0%).
+
+    If rejection_log lacks forward_return_pct column, returns empty lists.
+    """
+    # Check if forward_return_pct column exists
+    cursor = conn.execute("PRAGMA table_info(rejection_log)")
+    available_cols = {row["name"] for row in cursor.fetchall()}
+
+    if "forward_return_pct" not in available_cols:
+        logger.warning("rejection_log missing forward_return_pct column — returning empty counterfactuals")
+        return {"top_misses": [], "top_good_rejections": []}
+
+    # Top misses: rejected tickers with T+20 > 10%
+    miss_rows = conn.execute(
+        """
+        SELECT ticker, scan_date, rejection_gate, rejection_reason, forward_return_pct
+        FROM rejection_log
+        WHERE forward_return_pct > 10.0
+        ORDER BY forward_return_pct DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    top_misses = [
+        {
+            "ticker": row["ticker"],
+            "scan_date": row["scan_date"],
+            "rejection_gate": row["rejection_gate"],
+            "rejection_reason": row["rejection_reason"],
+            "forward_return_pct": round(row["forward_return_pct"], 2),
+        }
+        for row in miss_rows
+    ]
+
+    # Top good rejections: rejected tickers with T+20 < 0%
+    good_rows = conn.execute(
+        """
+        SELECT ticker, scan_date, rejection_gate, rejection_reason, forward_return_pct
+        FROM rejection_log
+        WHERE forward_return_pct < 0.0
+        ORDER BY forward_return_pct ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    top_good_rejections = [
+        {
+            "ticker": row["ticker"],
+            "scan_date": row["scan_date"],
+            "rejection_gate": row["rejection_gate"],
+            "rejection_reason": row["rejection_reason"],
+            "forward_return_pct": round(row["forward_return_pct"], 2),
+        }
+        for row in good_rows
+    ]
+
+    return {
+        "top_misses": top_misses,
+        "top_good_rejections": top_good_rejections,
+    }
+
+
 def _compute_cagr(
     start_value: float | None, end_value: float | None,
     start_date: str, end_date: str,

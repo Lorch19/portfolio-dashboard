@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import {
   ArrowUp,
   ArrowDown,
@@ -66,7 +66,7 @@ function PnlCell({ value }: { value: number | null }) {
       ) : (
         <ArrowDown className="h-3 w-3" />
       )}
-      <span>{isPositive ? formatCurrency(value) : formatCurrency(value)}</span>
+      <span>{formatCurrency(value)}</span>
     </span>
   )
 }
@@ -112,13 +112,15 @@ function RiskBadge({
 }: {
   position: HoldingsPosition
 }) {
-  const { exit_stage, portfolio_heat_contribution, sector_concentration_status } = position
+  const { portfolio_heat_contribution, sector_concentration_status } = position
 
   const badges: { label: string; color: string }[] = []
 
-  if (exit_stage === "initial" && position.stop_loss != null && position.current_price != null) {
+  if (position.stop_loss != null && position.current_price != null && position.current_price > 0) {
     const distanceToStop = ((position.current_price - position.stop_loss) / position.current_price) * 100
-    if (distanceToStop < 5 && distanceToStop >= 0) {
+    if (distanceToStop < 0) {
+      badges.push({ label: "Below Stop", color: "bg-destructive-muted text-destructive" })
+    } else if (distanceToStop < 5) {
       badges.push({ label: "Near Stop", color: "bg-warning-muted text-warning" })
     }
   }
@@ -133,7 +135,8 @@ function RiskBadge({
     badges.push({ label: "Sector Critical", color: "bg-destructive-muted text-destructive" })
   }
 
-  if (badges.length === 0 && sector_concentration_status != null) {
+  const hasAnyRiskData = portfolio_heat_contribution != null || sector_concentration_status != null
+  if (badges.length === 0 && hasAnyRiskData) {
     badges.push({ label: "OK", color: "bg-success-muted text-success" })
   }
 
@@ -189,19 +192,20 @@ function MobileCardView({
   sortKey: SortKey
   sortDirection: SortDirection
 }) {
-  const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
-  const sorted = sortPositions(positions, sortKey, sortDirection)
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const sorted = useMemo(() => sortPositions(positions, sortKey, sortDirection), [positions, sortKey, sortDirection])
 
   return (
     <div className="space-y-3 md:hidden">
       {sorted.map((pos) => {
-        const isExpanded = expandedTicker === pos.ticker
+        const cardKey = `${pos.ticker}-${pos.sleeve}`
+        const isExpanded = expandedKey === cardKey
         return (
-          <Card key={pos.ticker} size="sm">
+          <Card key={cardKey} size="sm">
             <CardContent
               className="cursor-pointer p-3"
               onClick={() =>
-                setExpandedTicker(isExpanded ? null : pos.ticker)
+                setExpandedKey(isExpanded ? null : cardKey)
               }
               role="button"
               aria-expanded={isExpanded}
@@ -209,7 +213,7 @@ function MobileCardView({
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault()
-                  setExpandedTicker(isExpanded ? null : pos.ticker)
+                  setExpandedKey(isExpanded ? null : cardKey)
                 }
               }}
             >
@@ -288,7 +292,7 @@ export function HoldingsTable({ positions }: HoldingsTableProps) {
     }
   }
 
-  const sorted = sortPositions(positions, sortKey, sortDirection)
+  const sorted = useMemo(() => sortPositions(positions, sortKey, sortDirection), [positions, sortKey, sortDirection])
 
   return (
     <>
@@ -332,7 +336,7 @@ export function HoldingsTable({ positions }: HoldingsTableProps) {
           <tbody>
             {sorted.map((pos, i) => (
               <tr
-                key={pos.ticker}
+                key={`${pos.ticker}-${pos.sleeve}`}
                 className={cn(
                   "h-10 border-b border-border/50",
                   i % 2 === 1 && "bg-muted/50"

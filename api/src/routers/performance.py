@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from src.config import settings
 from src.db.connection import get_db_connection
-from src.db.portfolio import get_portfolio_performance
+from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots
 from src.db.supervisor import get_arena_comparison, get_calibration_scores, get_prediction_accuracy
 
 router = APIRouter()
@@ -25,12 +25,16 @@ def _query_performance() -> dict:
     if not portfolio_path:
         result["portfolio_summary"] = None
         result["portfolio_summary_error"] = "portfolio.db not accessible: path not configured"
+        result["snapshots"] = None
+        result["snapshots_error"] = "portfolio.db not accessible: path not configured"
     else:
         try:
             conn = get_db_connection(portfolio_path)
         except Exception as exc:
             result["portfolio_summary"] = None
             result["portfolio_summary_error"] = f"portfolio.db not accessible: {exc}"
+            result["snapshots"] = None
+            result["snapshots_error"] = f"portfolio.db not accessible: {exc}"
             conn = None
 
         if conn is not None:
@@ -42,6 +46,14 @@ def _query_performance() -> dict:
                     logger.exception("Error querying portfolio performance")
                     result["portfolio_summary"] = None
                     result["portfolio_summary_error"] = str(exc)
+
+                try:
+                    result["snapshots"] = get_portfolio_snapshots(conn)
+                    result["snapshots_error"] = None
+                except Exception as exc:
+                    logger.exception("Error querying portfolio snapshots")
+                    result["snapshots"] = None
+                    result["snapshots_error"] = str(exc)
             finally:
                 conn.close()
 

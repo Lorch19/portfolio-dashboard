@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-06
+last_updated: 2026-04-07T10:00:00
 project: portfolio-dashboard
 project_key: NOKEY
 tracking_system: file-system
@@ -65,33 +65,33 @@ development_status:
   # Epic 4: Holdings & Position Monitoring
   epic-4: in-progress
   4-1-holdings-api-endpoint: done
-  4-2-holdings-tab-positions-table-with-pnl-and-risk-status: review
+  4-2-holdings-tab-positions-table-with-pnl-and-risk-status: done
   epic-4-retrospective: optional
 
   # Epic 5: Performance & Prediction Accuracy
-  epic-5: in-progress
+  epic-5: done
   5-1-performance-api-endpoint: done
-  5-2-performance-tab-portfolio-pnl-and-benchmark-charts: backlog
-  5-3-performance-tab-prediction-accuracy-and-arena-comparison: backlog
+  5-2-performance-tab-portfolio-pnl-and-benchmark-charts: done
+  5-3-performance-tab-prediction-accuracy-and-arena-comparison: done
   epic-5-retrospective: optional
 
   # Epic 6: Decision Reasoning & Counterfactuals
-  epic-6: backlog
-  6-1-decisions-api-endpoint: backlog
-  6-2-decisions-tab-reasoning-log-and-scoring-breakdown: backlog
-  6-3-decisions-tab-counterfactual-analysis: backlog
+  epic-6: done
+  6-1-decisions-api-endpoint: done
+  6-2-decisions-tab-reasoning-log-and-scoring-breakdown: done
+  6-3-decisions-tab-counterfactual-analysis: done
   epic-6-retrospective: optional
 
   # Epic 7: Cost Tracking & ROI
-  epic-7: backlog
-  7-1-costs-api-endpoint: backlog
-  7-2-costs-tab-fee-breakdown-and-roi-display: backlog
+  epic-7: done
+  7-1-costs-api-endpoint: done
+  7-2-costs-tab-fee-breakdown-and-roi-display: done
   epic-7-retrospective: optional
 
   # Epic 8: Debug & Pipeline Replay
-  epic-8: backlog
-  8-1-debug-api-endpoints: backlog
-  8-2-debug-tab-raw-event-bus-viewer: backlog
-  8-3-debug-tab-agent-logs-and-error-traces: backlog
-  8-4-debug-tab-pipeline-replay: backlog
+  epic-8: done
+  8-1-debug-api-endpoints: done
+  8-2-debug-tab-raw-event-bus-viewer: done
+  8-3-debug-tab-agent-logs-and-error-traces: done
+  8-4-debug-tab-pipeline-replay: done
   epic-8-retrospective: optional

@@ -1,6 +1,6 @@
 # Story 4.2: Holdings Tab — Positions Table with P&L and Risk Status
 
-Status: review
+Status: done
 
 ## Story
 
@@ -300,6 +300,18 @@ Claude Opus 4.6 (1M context)
 ### Change Log
 
 - 2026-04-06: Story 4.2 implementation complete — Holdings tab with sortable positions table, P&L visualization, risk badges, mobile card layout
+
+### Review Findings
+
+- [x] [Review][Decision] Ticker used as React key — fixed: composite key `${ticker}-${sleeve}` for desktop rows and mobile cards [HoldingsTable.tsx]
+- [x] [Review][Decision] RiskBadge logic gaps — fixed: removed exit_stage gate, added "Below Stop" badge for breached stops, OK badge shows when any risk data present [HoldingsTable.tsx]
+- [x] [Review][Patch] PnlCell dead ternary — fixed: removed redundant ternary [HoldingsTable.tsx:69]
+- [x] [Review][Patch] Division by zero in RiskBadge — fixed: guard `current_price > 0` [HoldingsTable.tsx:119]
+- [x] [Review][Patch] sortPositions called on every render — fixed: wrapped in `useMemo` [HoldingsTable.tsx]
+- [x] [Review][Patch] aria-live="polite" scope too broad — fixed: scoped to content and error areas only [holdings.tsx]
+- [ ] [Review][Patch] Route test file doesn't test actual HoldingsPage — renders components directly, misses hook integration, loading/error conditional logic, EmptyState [holdings.test.tsx] — skipped: requires hook mocking rewrite, not a non-controversial patch
+- [x] [Review][Defer] No runtime validation of API data (zod/etc) — project-wide pattern, not specific to this story — deferred, pre-existing
+- [x] [Review][Defer] Mobile card touch target min-height not explicitly enforced (AC7 specifies 44x44px minimum) — deferred, pre-existing UX concern
 
 ### File List
 

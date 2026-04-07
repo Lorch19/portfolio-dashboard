@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
+from src.routers.costs import router as costs_router
+from src.routers.debug import router as debug_router
+from src.routers.decisions import router as decisions_router
 from src.routers.funnel import router as funnel_router
 from src.routers.health import router as health_router
 from src.routers.holdings import router as holdings_router
@@ -42,6 +45,9 @@ app.add_middleware(
 )
 
 
+app.include_router(costs_router)
+app.include_router(debug_router)
+app.include_router(decisions_router)
 app.include_router(funnel_router)
 app.include_router(health_router)
 app.include_router(holdings_router)

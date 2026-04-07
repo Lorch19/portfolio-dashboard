@@ -72,3 +72,26 @@
 
 - Error messages leak internal filesystem paths in performance endpoint — pre-existing pattern across all routers (health, funnel, holdings). Acceptable for internal dashboard.
 - No pagination or rate limiting on /api/performance — architecture explicitly defers pagination and caching. Single-user dashboard.
+
+## Deferred from: code review of story 4-2 (2026-04-07)
+
+- No runtime validation of API data (zod/etc) between API response and component rendering — project-wide pattern, not specific to this story. Malformed API data (e.g., missing fields) would cause runtime errors in formatCurrency, RiskBadge division, etc.
+- Mobile card touch target min-height not explicitly enforced — AC7 specifies 44x44px minimum touch targets. CardContent has p-3 (12px padding) but no explicit min-h constraint. Touch targets likely sufficient due to text content height but not guaranteed.
+
+## Deferred from: code review of story 5-2 (2026-04-07)
+
+- Exception messages leaked to client via _error fields (snapshots_error, portfolio_summary_error) — pre-existing pattern across all endpoints. Internal paths/details exposed. Acceptable for internal dashboard.
+- No pagination/LIMIT on get_portfolio_snapshots query — pre-existing architectural choice (no pagination on any endpoint). Daily snapshots bounded to ~thousands of rows.
+- Win Rate KPI always shows dash — deferred to Story 5.3 (prediction accuracy data not in portfolio_summary).
+
+## Deferred from: code review of story 6-1 (2026-04-07)
+
+- `all_keys` list duplicated from `extended_cols` in `get_recent_decisions` — cosmetic refactor, no shared constant [api/src/db/portfolio.py]
+- No auth or rate limiting on `/api/decisions` — architecture explicitly defers auth to post-MVP
+- Error messages leak filesystem paths in `_error` fields — pre-existing pattern across all routers, acceptable for internal dashboard
+
+## Deferred from: code review of story 5-3 (2026-04-07)
+
+- KPI card rendering logic duplicated between `PerformanceKpiCards` and `PredictionAccuracySection` — cosmetic DRY concern, extract shared `KpiCard` component in future refactor
+- `beating_random: null` displays as destructive (red) styling — type allows null but no distinct null UI state. Ambiguous for unknown calibration state.
+- Session filter dropdown hidden when only one session exists but URL session param still filters silently — edge case where manually-crafted URL could show empty table with no filter to clear

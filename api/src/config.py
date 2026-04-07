@@ -10,6 +10,7 @@ class Settings:
         ]
         self.portfolio_db_path: str = os.getenv("PORTFOLIO_DB_PATH", "")
         self.supervisor_db_path: str = os.getenv("SUPERVISOR_DB_PATH", "")
+        self.log_dir: str = os.getenv("LOG_DIR", "")
 
 
 settings = Settings()
@@ -28,6 +29,10 @@ STRANGLER_FIG_STATUS: dict[str, dict[str, str]] = {
     "DataBridge": {"mode": "v2-supervisor", "description": "Supervisor sync service"},
     "Health Monitor": {"mode": "v2-supervisor", "description": "Supervisor health checks"},
 }
+
+
+# Monthly VPS running cost in USD (DigitalOcean/Hetzner etc.)
+VPS_MONTHLY_COST: float = float(os.getenv("VPS_MONTHLY_COST", "20.00"))
 
 
 def get_strangler_fig_status() -> dict:

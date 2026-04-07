@@ -4,7 +4,7 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
-from src.db.portfolio import get_portfolio_performance
+from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots
 from src.db.supervisor import get_arena_comparison, get_calibration_scores, get_prediction_accuracy
 
 
@@ -78,6 +78,48 @@ class TestGetPortfolioPerformance:
         assert result["spy_return"] is None
         assert result["alpha"] is None
         assert result["total_trades"] == 0
+
+
+class TestGetPortfolioSnapshots:
+    def test_returns_time_series_data(self, performance_portfolio_db_path: str):
+        conn = sqlite3.connect(performance_portfolio_db_path)
+        conn.row_factory = sqlite3.Row
+        result = get_portfolio_snapshots(conn)
+        conn.close()
+
+        assert len(result) == 4
+        assert result[0]["snapshot_date"] == "2026-01-15"
+        assert result[0]["portfolio_value"] == 100000.00
+        assert result[0]["spy_value"] == 4800.00
+        assert result[-1]["snapshot_date"] == "2026-04-04"
+        assert result[-1]["portfolio_value"] == 112500.00
+
+    def test_ordered_by_date_ascending(self, performance_portfolio_db_path: str):
+        conn = sqlite3.connect(performance_portfolio_db_path)
+        conn.row_factory = sqlite3.Row
+        result = get_portfolio_snapshots(conn)
+        conn.close()
+
+        dates = [r["snapshot_date"] for r in result]
+        assert dates == sorted(dates)
+
+    def test_empty_table_returns_empty_list(self, tmp_path):
+        db_file = tmp_path / "empty_snap.db"
+        conn = sqlite3.connect(str(db_file))
+        conn.execute("""
+            CREATE TABLE sim_portfolio_snapshots (
+                id INTEGER PRIMARY KEY, snapshot_date TEXT, ticker TEXT,
+                current_stop_level REAL, exit_stage TEXT,
+                portfolio_heat_contribution REAL, sector_concentration_status TEXT,
+                portfolio_value REAL, spy_value REAL, created_at TEXT
+            )
+        """)
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        result = get_portfolio_snapshots(conn)
+        conn.close()
+
+        assert result == []
 
 
 class TestGetPredictionAccuracy:
@@ -278,6 +320,19 @@ class TestPerformanceEndpoint:
         assert data["arena_comparison"] is not None
         assert data["arena_comparison_error"] is None
 
+    def test_returns_snapshots(
+        self, client: TestClient, performance_portfolio_db_path: str,
+        performance_supervisor_db_path: str, monkeypatch,
+    ):
+        monkeypatch.setattr("src.config.settings.portfolio_db_path", performance_portfolio_db_path)
+        monkeypatch.setattr("src.config.settings.supervisor_db_path", performance_supervisor_db_path)
+        data = client.get("/api/performance").json()
+        assert data["snapshots"] is not None
+        assert data["snapshots_error"] is None
+        assert len(data["snapshots"]) == 4
+        assert data["snapshots"][0]["snapshot_date"] == "2026-01-15"
+        assert data["snapshots"][0]["portfolio_value"] == 100000.00
+
     def test_portfolio_summary_fields(
         self, client: TestClient, performance_portfolio_db_path: str,
         performance_supervisor_db_path: str, monkeypatch,
@@ -354,6 +409,8 @@ class TestPerformanceEndpoint:
         data = response.json()
         assert data["portfolio_summary"] is None
         assert "not configured" in data["portfolio_summary_error"]
+        assert data["snapshots"] is None
+        assert "not configured" in data["snapshots_error"]
         # Supervisor sections should still work
         assert data["prediction_accuracy"] is not None
         assert data["prediction_accuracy_error"] is None
@@ -447,6 +504,10 @@ class TestPerformanceEndpoint:
         assert summary["total_pnl"] is None
         assert summary["cagr"] is None
 
+        # Snapshots: empty list since no data
+        assert data["snapshots_error"] is None
+        assert data["snapshots"] == []
+
         # Prediction: empty
         assert data["prediction_accuracy_error"] is None
         pred = data["prediction_accuracy"]
@@ -469,6 +530,8 @@ class TestPerformanceEndpoint:
         data = response.json()
         assert data["portfolio_summary"] is None
         assert data["portfolio_summary_error"] is not None
+        assert data["snapshots"] is None
+        assert data["snapshots_error"] is not None
         assert data["prediction_accuracy"] is None
         assert data["prediction_accuracy_error"] is not None
         assert data["calibration"] is None

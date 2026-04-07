@@ -269,6 +269,59 @@ def get_calibration_scores(conn: sqlite3.Connection) -> dict:
     }
 
 
+def get_decision_predictions(
+    conn: sqlite3.Connection, tickers: list[str] | None = None, limit: int = 200,
+) -> list[dict]:
+    """Return per-ticker prediction outcomes for the decisions endpoint.
+
+    Queries predictions for prediction outcomes ordered by scan_date DESC.
+    Returns: ticker, scan_date, predicted_outcome, probability,
+    actual_outcome, resolved, brier_score.
+
+    Args:
+        conn: Read-only sqlite3 connection to michael_supervisor.db.
+        tickers: Optional list of tickers to filter by.
+        limit: Max rows to return (default 200).
+    """
+    if tickers:
+        placeholders = ",".join("?" for _ in tickers)
+        rows = conn.execute(
+            f"""
+            SELECT p.ticker, p.scan_date, p.predicted_outcome, p.probability,
+                   p.actual_outcome, p.resolved, p.brier_score
+            FROM predictions p
+            WHERE p.ticker IN ({placeholders})
+            ORDER BY p.scan_date DESC
+            LIMIT ?
+            """,
+            [*tickers, limit],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT p.ticker, p.scan_date, p.predicted_outcome, p.probability,
+                   p.actual_outcome, p.resolved, p.brier_score
+            FROM predictions p
+            ORDER BY p.scan_date DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    return [
+        {
+            "ticker": row["ticker"],
+            "scan_date": row["scan_date"],
+            "predicted_outcome": row["predicted_outcome"],
+            "probability": row["probability"],
+            "actual_outcome": row["actual_outcome"],
+            "resolved": row["resolved"],
+            "brier_score": round(row["brier_score"], 4) if row["brier_score"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
 def get_arena_comparison(conn: sqlite3.Connection) -> list[dict]:
     """Return per-model arena comparison stats grouped by session.
 

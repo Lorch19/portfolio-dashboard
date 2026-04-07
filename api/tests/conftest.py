@@ -257,6 +257,108 @@ INSERT INTO arena_forward_returns (arena_decision_id, forward_return, evaluated_
 """
 
 
+PORTFOLIO_DECISIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS guardian_decisions (
+    id INTEGER PRIMARY KEY,
+    scan_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    conviction TEXT,
+    thesis TEXT,
+    thesis_full_text TEXT,
+    primary_catalyst TEXT,
+    invalidation_trigger TEXT,
+    decision_tier TEXT,
+    fundamental_score INTEGER,
+    roic_at_scan REAL,
+    prev_roic REAL,
+    roic_delta REAL,
+    rsi REAL,
+    pe_at_scan REAL,
+    median_pe REAL,
+    pe_discount_pct REAL,
+    relative_strength REAL,
+    valuation_verdict TEXT,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS rejection_log (
+    id INTEGER PRIMARY KEY,
+    scan_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    rejection_gate TEXT NOT NULL,
+    rejection_reason TEXT NOT NULL,
+    forward_return_pct REAL,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS trade_events (
+    id INTEGER PRIMARY KEY,
+    scan_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    action TEXT NOT NULL,
+    shares REAL,
+    price REAL,
+    estimated_cost_dollars REAL,
+    created_at TEXT
+);
+"""
+
+PORTFOLIO_DECISIONS_SAMPLE_DATA = """
+INSERT INTO guardian_decisions (scan_date, ticker, decision, conviction, thesis, thesis_full_text, primary_catalyst, invalidation_trigger, decision_tier, fundamental_score, roic_at_scan, prev_roic, roic_delta, rsi, pe_at_scan, median_pe, pe_discount_pct, relative_strength, valuation_verdict, created_at) VALUES
+    ('2026-04-01', 'AAPL', 'approve', 'high', 'Strong fundamentals', 'Apple shows strong earnings momentum with services revenue accelerating. iPhone cycle expected strong.', 'Earnings beat Q1', 'Revenue miss > 5%', 'high_conviction', 7, 28.5, 25.3, 3.2, 55.4, 28.1, 32.5, -13.5, 1.15, 'undervalued', '2026-04-01T07:00:00Z'),
+    ('2026-04-01', 'MSFT', 'approve', 'medium', 'Cloud growth', 'Microsoft Azure growth reaccelerating. AI integration driving enterprise adoption.', 'Azure growth reacceleration', 'Cloud margin compression', 'standard', 6, 22.1, 20.8, 1.3, 48.2, 35.0, 33.0, 6.1, 1.08, 'fair_value', '2026-04-01T07:01:00Z'),
+    ('2026-04-01', 'TSLA', 'reject', 'low', 'Overvalued', 'Tesla valuation stretched despite delivery concerns.', 'Robotaxi announcement', 'Delivery miss > 10%', 'speculative', 3, 8.2, 9.1, -0.9, 72.1, 85.0, 50.0, 70.0, 0.92, 'overvalued', '2026-04-01T07:02:00Z'),
+    ('2026-03-15', 'AAPL', 'approve', 'high', 'Momentum continues', 'Apple momentum continues with strong services growth.', 'Services revenue beat', 'Macro slowdown', 'high_conviction', 8, 27.8, 24.1, 3.7, 52.0, 27.5, 32.5, -15.4, 1.20, 'undervalued', '2026-03-15T07:00:00Z'),
+    ('2026-03-15', 'NVDA', 'approve', 'high', 'AI thesis', 'NVIDIA data center demand far exceeds supply. AI capex cycle early innings.', 'Data center revenue beat', 'China export ban expansion', 'high_conviction', 7, 35.2, 30.1, 5.1, 60.1, 45.0, 40.0, 12.5, 1.35, 'fair_value', '2026-03-15T07:01:00Z');
+
+INSERT INTO rejection_log (scan_date, ticker, rejection_gate, rejection_reason, forward_return_pct, created_at) VALUES
+    ('2026-04-01', 'META', 'guardian_valuation', 'P/E too high relative to growth', 15.2, '2026-04-01T07:05:00Z'),
+    ('2026-04-01', 'AMZN', 'guardian_fundamentals', 'F-Score below threshold', 12.8, '2026-04-01T07:06:00Z'),
+    ('2026-04-01', 'NFLX', 'scout', 'low_momentum', -8.3, '2026-04-01T07:07:00Z'),
+    ('2026-04-01', 'COIN', 'guardian_fundamentals', 'F-Score < 5', -12.1, '2026-04-01T07:08:00Z'),
+    ('2026-03-15', 'GME', 'scout', 'volume_insufficient', -5.5, '2026-03-15T07:05:00Z'),
+    ('2026-03-15', 'PLTR', 'guardian_valuation', 'Valuation stretched', 8.2, '2026-03-15T07:06:00Z');
+"""
+
+REALIZED_GAINS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS realized_gains (
+    id INTEGER PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    entry_date TEXT,
+    exit_date TEXT,
+    entry_price REAL,
+    exit_price REAL,
+    shares REAL,
+    realized_pnl REAL,
+    transaction_costs REAL DEFAULT 0.0,
+    created_at TEXT
+);
+"""
+
+REALIZED_GAINS_SAMPLE_DATA = """
+INSERT INTO realized_gains (ticker, entry_date, exit_date, entry_price, exit_price, shares, realized_pnl, transaction_costs, created_at) VALUES
+    ('JPM', '2026-02-01', '2026-03-01', 200.00, 210.00, 15, 150.00, 4.50, '2026-03-01T09:30:00Z'),
+    ('AMZN', '2026-01-15', '2026-02-15', 180.00, 175.00, 10, -50.00, 3.25, '2026-02-15T09:30:00Z');
+"""
+
+
+@pytest.fixture
+def costs_portfolio_db_path(tmp_path: Path) -> str:
+    """Create a temporary portfolio DB with all schemas including realized_gains for costs."""
+    db_file = tmp_path / "portfolio_costs.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(PORTFOLIO_FUNNEL_SCHEMA)
+    conn.executescript(PORTFOLIO_FUNNEL_SAMPLE_DATA)
+    conn.executescript(PORTFOLIO_HOLDINGS_SCHEMA)
+    conn.executescript(PORTFOLIO_HOLDINGS_SAMPLE_DATA)
+    conn.executescript(PORTFOLIO_PERFORMANCE_SAMPLE_DATA)
+    conn.executescript(REALIZED_GAINS_SCHEMA)
+    conn.executescript(REALIZED_GAINS_SAMPLE_DATA)
+    conn.close()
+    return str(db_file)
+
+
 @pytest.fixture
 def supervisor_db_path(tmp_path: Path) -> str:
     """Create a temporary supervisor DB with schema and sample data."""
@@ -299,6 +401,30 @@ def performance_portfolio_db_path(tmp_path: Path) -> str:
 def performance_supervisor_db_path(tmp_path: Path) -> str:
     """Create a temporary supervisor DB with all schemas including performance data."""
     db_file = tmp_path / "supervisor_perf.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(SUPERVISOR_SCHEMA)
+    conn.executescript(SUPERVISOR_SAMPLE_DATA)
+    conn.executescript(SUPERVISOR_PERFORMANCE_SCHEMA)
+    conn.executescript(SUPERVISOR_PERFORMANCE_SAMPLE_DATA)
+    conn.close()
+    return str(db_file)
+
+
+@pytest.fixture
+def decisions_portfolio_db_path(tmp_path: Path) -> str:
+    """Create a temporary portfolio DB with extended decisions schemas."""
+    db_file = tmp_path / "portfolio_decisions.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(PORTFOLIO_DECISIONS_SCHEMA)
+    conn.executescript(PORTFOLIO_DECISIONS_SAMPLE_DATA)
+    conn.close()
+    return str(db_file)
+
+
+@pytest.fixture
+def decisions_supervisor_db_path(tmp_path: Path) -> str:
+    """Create a temporary supervisor DB with predictions for decisions endpoint."""
+    db_file = tmp_path / "supervisor_decisions.db"
     conn = sqlite3.connect(str(db_file))
     conn.executescript(SUPERVISOR_SCHEMA)
     conn.executescript(SUPERVISOR_SAMPLE_DATA)

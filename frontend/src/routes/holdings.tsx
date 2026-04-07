@@ -25,7 +25,7 @@ function HoldingsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6" aria-live="polite">
+    <div className="space-y-6 p-6">
       <h1 className="text-xl font-semibold">Holdings</h1>
 
       {data?.message && (
@@ -33,19 +33,23 @@ function HoldingsPage() {
       )}
 
       {/* Positions error */}
-      {data?.positions_error ? (
-        <ErrorCard error={data.positions_error} onRetry={() => refetch()} />
-      ) : data?.positions && data.positions.length > 0 ? (
-        <section aria-label="Positions Table">
-          <HoldingsTable positions={data.positions} />
-        </section>
-      ) : (
-        <EmptyState />
-      )}
+      <div aria-live="polite">
+        {data?.positions_error ? (
+          <ErrorCard error={data.positions_error} onRetry={() => refetch()} />
+        ) : data?.positions && data.positions.length > 0 ? (
+          <section aria-label="Positions Table">
+            <HoldingsTable positions={data.positions} />
+          </section>
+        ) : (
+          <EmptyState />
+        )}
+      </div>
 
       {/* Risk data warning (positions may still be visible) */}
       {data?.risk_data_error && !data?.positions_error && (
-        <ErrorCard error={`Risk data unavailable: ${data.risk_data_error}`} onRetry={() => refetch()} />
+        <div aria-live="polite">
+          <ErrorCard error={`Risk data unavailable: ${data.risk_data_error}`} onRetry={() => refetch()} />
+        </div>
       )}
     </div>
   )
