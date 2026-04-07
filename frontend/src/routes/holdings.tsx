@@ -71,7 +71,7 @@ function HoldingsPage() {
 
 function SummaryCard({ label, value, subtext }: { label: string; value: string; subtext?: string }) {
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="rounded-lg bg-card p-3">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-bold">{value}</p>
       {subtext && <p className="text-xs text-muted-foreground">{subtext}</p>}

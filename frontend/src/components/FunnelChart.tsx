@@ -19,6 +19,16 @@ const STAGE_ORDER: (keyof FunnelStages)[] = [
   "michael_traded",
 ]
 
+/** Gradient from primary (top) to success (bottom) per UX spec */
+const STAGE_COLORS: Record<keyof FunnelStages, string> = {
+  scout_universe: "bg-primary",
+  scout_passed: "bg-primary/80",
+  guardian_approved: "bg-primary/60",
+  guardian_modified: "bg-warning/70",
+  guardian_rejected: "bg-destructive/60",
+  michael_traded: "bg-success",
+}
+
 interface FunnelChartProps {
   stages: FunnelStages
   selectedStage: string | null
@@ -57,7 +67,7 @@ export function FunnelChart({
             <div className="flex w-full items-center gap-3 md:contents">
               <div className="flex-1">
                 <div
-                  className="h-6 rounded bg-primary transition-all"
+                  className={cn("h-6 rounded transition-all", STAGE_COLORS[stage])}
                   style={{ width: `${Math.max(widthPercent, 1)}%` }}
                 />
               </div>

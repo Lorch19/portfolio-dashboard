@@ -37,8 +37,8 @@ export { DebugPage as DebugPageComponent }
 const SEVERITY_STYLES: Record<string, string> = {
   ERROR: "bg-destructive/10 text-destructive",
   CRITICAL: "bg-destructive/10 text-destructive",
-  WARNING: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-  INFO: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  WARNING: "bg-warning/10 text-warning",
+  INFO: "bg-primary/10 text-primary",
   DEBUG: "bg-muted text-muted-foreground",
 }
 
