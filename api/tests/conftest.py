@@ -339,6 +339,8 @@ CREATE TABLE IF NOT EXISTS rejection_log (
     ticker TEXT NOT NULL,
     rejected_at_gate TEXT NOT NULL,
     rejection_reason TEXT NOT NULL,
+    t_plus_5 REAL,
+    t_plus_10 REAL,
     t_plus_20 REAL,
     created_at TEXT
 );
@@ -356,6 +358,30 @@ CREATE TABLE IF NOT EXISTS trade_events (
     invalidation_trigger TEXT,
     decision_tier TEXT,
     estimated_cost_dollars REAL,
+    bear_case_text TEXT,
+    pre_mortem_text TEXT,
+    moat_thesis TEXT,
+    critique_quality_score REAL,
+    critique_changed_decision INTEGER,
+    challenge_gate_result TEXT,
+    model_id TEXT,
+    decided_by_model TEXT,
+    pe_at_entry REAL,
+    median_pe_at_entry REAL,
+    roic_at_entry REAL,
+    pnl_pct REAL,
+    realized_rr REAL,
+    max_favorable_excursion_pct REAL,
+    days_held INTEGER,
+    sp500_return_same_period REAL,
+    exit_price REAL,
+    exit_date TEXT,
+    exit_trigger TEXT,
+    exit_reason TEXT,
+    stop_loss REAL,
+    target_1 REAL,
+    target_2 REAL,
+    sleeve TEXT,
     created_at TEXT
 );
 
@@ -364,6 +390,7 @@ CREATE TABLE IF NOT EXISTS scout_candidates (
     scan_date TEXT NOT NULL,
     ticker TEXT NOT NULL,
     fundamental_score INTEGER,
+    technical_score INTEGER,
     roic_at_scan REAL,
     prev_roic REAL,
     roic_delta REAL,
@@ -373,6 +400,15 @@ CREATE TABLE IF NOT EXISTS scout_candidates (
     pe_discount_pct REAL,
     relative_strength REAL,
     valuation_verdict TEXT,
+    michael_quality_score REAL,
+    beneish_m_score REAL,
+    altman_z_score REAL,
+    insider_signal TEXT,
+    insider_net_value_usd REAL,
+    insider_buy_cluster INTEGER,
+    momentum_at_scan REAL,
+    sector TEXT,
+    price_at_scan REAL,
     created_at TEXT
 );
 """
@@ -385,21 +421,23 @@ INSERT INTO guardian_decisions (id, decision_date, ticker, decision, proposed_co
     ('gd4', '2026-03-15', 'AAPL', 'approve', 8, '2026-03-15T07:00:00Z'),
     ('gd5', '2026-03-15', 'NVDA', 'approve', 7, '2026-03-15T07:01:00Z');
 
-INSERT INTO rejection_log (id, scan_date, ticker, rejected_at_gate, rejection_reason, t_plus_20, created_at) VALUES
-    ('rl1', '2026-04-01', 'META', 'guardian_valuation', 'P/E too high', 15.2, '2026-04-01T07:05:00Z'),
-    ('rl2', '2026-04-01', 'AMZN', 'guardian_fundamentals', 'F-Score below threshold', 12.8, '2026-04-01T07:06:00Z'),
-    ('rl3', '2026-04-01', 'NFLX', 'scout', 'low_momentum', -8.3, '2026-04-01T07:07:00Z'),
-    ('rl4', '2026-04-01', 'COIN', 'guardian_fundamentals', 'F-Score < 5', -12.1, '2026-04-01T07:08:00Z'),
-    ('rl5', '2026-03-15', 'GME', 'scout', 'volume_insufficient', -5.5, '2026-03-15T07:05:00Z');
+INSERT INTO rejection_log (id, scan_date, ticker, rejected_at_gate, rejection_reason, t_plus_5, t_plus_10, t_plus_20, created_at) VALUES
+    ('rl1', '2026-04-01', 'META', 'guardian_valuation', 'P/E too high', 5.1, 8.3, 15.2, '2026-04-01T07:05:00Z'),
+    ('rl2', '2026-04-01', 'AMZN', 'guardian_fundamentals', 'F-Score below threshold', 4.2, 7.1, 12.8, '2026-04-01T07:06:00Z'),
+    ('rl3', '2026-04-01', 'NFLX', 'scout', 'low_momentum', -2.1, -5.0, -8.3, '2026-04-01T07:07:00Z'),
+    ('rl4', '2026-04-01', 'COIN', 'guardian_fundamentals', 'F-Score < 5', -3.5, -8.0, -12.1, '2026-04-01T07:08:00Z'),
+    ('rl5', '2026-03-15', 'GME', 'scout', 'volume_insufficient', -1.2, -3.0, -5.5, '2026-03-15T07:05:00Z'),
+    ('rl6', '2026-03-01', 'AAPL', 'scout', 'low_momentum', -0.5, 1.2, -3.2, '2026-03-01T07:00:00Z');
 
-INSERT INTO trade_events (id, timestamp, source, event_type, ticker, entry_price, thesis_full_text, primary_catalyst, invalidation_trigger, decision_tier, conviction, estimated_cost_dollars, created_at) VALUES
-    ('te1', '2026-04-01T08:00:00Z', 'michael', 'trade_entry', 'AAPL', 185.50, 'Strong earnings momentum', 'Q2 earnings beat', 'Revenue miss > 5%', 'high_conviction', 8, 1.85, '2026-04-01T08:00:00Z'),
-    ('te2', '2026-03-15T08:00:00Z', 'michael', 'trade_entry', 'NVDA', 890.25, 'AI data center demand', 'Data center beat', 'China ban expansion', 'high_conviction', 7, 4.45, '2026-03-15T08:00:00Z');
+INSERT INTO trade_events (id, timestamp, source, event_type, ticker, entry_price, thesis_full_text, primary_catalyst, invalidation_trigger, decision_tier, conviction, estimated_cost_dollars, bear_case_text, pre_mortem_text, moat_thesis, critique_quality_score, critique_changed_decision, challenge_gate_result, decided_by_model, pnl_pct, realized_rr, max_favorable_excursion_pct, days_held, sp500_return_same_period, exit_price, exit_date, exit_trigger, exit_reason, sleeve, stop_loss, target_1, target_2, created_at) VALUES
+    ('te1', '2026-04-01T08:00:00Z', 'michael', 'trade_entry', 'AAPL', 185.50, 'Strong earnings momentum with services growth accelerating', 'Q2 earnings beat', 'Revenue miss > 5%', 'high_conviction', 8, 1.85, 'iPhone saturation risk in mature markets', 'Services growth stalls if App Store regulation tightens', 'Ecosystem lock-in with 1.5B active devices', 7.5, 0, 'passed', 'claude-sonnet-4', 5.2, 1.8, 8.1, 22, 2.1, 195.14, '2026-04-23', 'target_1_hit', 'Price reached first target', 'core', 175.00, 195.00, 210.00, '2026-04-01T08:00:00Z'),
+    ('te2', '2026-03-15T08:00:00Z', 'michael', 'trade_entry', 'NVDA', 890.25, 'AI data center demand exceeding expectations', 'Data center revenue beat', 'China ban expansion', 'high_conviction', 7, 4.45, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-03-15T08:00:00Z');
 
-INSERT INTO scout_candidates (id, scan_date, ticker, fundamental_score, roic_at_scan, prev_roic, roic_delta, rsi, pe_at_scan, median_pe, pe_discount_pct, relative_strength, valuation_verdict, created_at) VALUES
-    ('sc1', '2026-04-01', 'AAPL', 7, 28.5, 25.3, 3.2, 55.4, 28.1, 32.5, -13.5, 1.15, 'undervalued', '2026-04-01T06:00:00Z'),
-    ('sc2', '2026-04-01', 'MSFT', 6, 22.1, 20.8, 1.3, 48.2, 35.0, 33.0, 6.1, 1.08, 'fair_value', '2026-04-01T06:00:00Z'),
-    ('sc3', '2026-03-15', 'NVDA', 7, 35.2, 30.1, 5.1, 60.1, 45.0, 40.0, 12.5, 1.35, 'fair_value', '2026-03-15T06:00:00Z');
+INSERT INTO scout_candidates (id, scan_date, ticker, fundamental_score, technical_score, roic_at_scan, prev_roic, roic_delta, rsi, pe_at_scan, median_pe, pe_discount_pct, relative_strength, valuation_verdict, michael_quality_score, beneish_m_score, altman_z_score, insider_signal, insider_net_value_usd, insider_buy_cluster, momentum_at_scan, sector, price_at_scan, created_at) VALUES
+    ('sc1', '2026-04-01', 'AAPL', 7, 8, 28.5, 25.3, 3.2, 55.4, 28.1, 32.5, -13.5, 1.15, 'undervalued', 8.2, -2.1, 4.5, 'buy', 2500000, 1, 12.3, 'Technology', 185.50, '2026-04-01T06:00:00Z'),
+    ('sc2', '2026-04-01', 'MSFT', 6, 7, 22.1, 20.8, 1.3, 48.2, 35.0, 33.0, 6.1, 1.08, 'fair_value', 7.1, -1.8, 5.2, NULL, NULL, NULL, 8.5, 'Technology', 420.00, '2026-04-01T06:00:00Z'),
+    ('sc3', '2026-03-15', 'NVDA', 7, 9, 35.2, 30.1, 5.1, 60.1, 45.0, 40.0, 12.5, 1.35, 'fair_value', 8.8, -1.5, 6.1, NULL, NULL, NULL, 15.2, 'Technology', 890.00, '2026-03-15T06:00:00Z'),
+    ('sc4', '2026-03-15', 'AAPL', 6, 7, 26.1, 24.0, 2.1, 52.0, 27.5, 32.5, -15.4, 1.10, 'undervalued', 7.9, -2.0, 4.3, 'buy', 1800000, 1, 10.1, 'Technology', 180.00, '2026-03-15T06:00:00Z');
 """
 
 REALIZED_GAINS_SCHEMA = """

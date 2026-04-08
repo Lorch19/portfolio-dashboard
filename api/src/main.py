@@ -14,6 +14,7 @@ from src.routers.funnel import router as funnel_router
 from src.routers.health import router as health_router
 from src.routers.holdings import router as holdings_router
 from src.routers.performance import router as performance_router
+from src.routers.strategies import router as strategies_router
 from src.routers.supervisor import router as supervisor_router
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ app.include_router(funnel_router)
 app.include_router(health_router)
 app.include_router(holdings_router)
 app.include_router(performance_router)
+app.include_router(strategies_router)
 app.include_router(supervisor_router)
 
 

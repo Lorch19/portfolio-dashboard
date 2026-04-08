@@ -1,6 +1,7 @@
 import logging
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from src.config import settings
 from src.db.connection import get_db_connection
@@ -17,7 +18,7 @@ DEFAULT_RISK_NULLS = {
 }
 
 
-def _query_holdings() -> dict:
+def _query_holdings(strategy_id: str | None = None) -> dict:
     """Query portfolio DB for open positions and Guardian risk data.
 
     Each section is independently wrapped so partial failures produce
@@ -50,7 +51,7 @@ def _query_holdings() -> dict:
     try:
         # Positions section
         try:
-            positions = get_open_positions(conn)
+            positions = get_open_positions(conn, strategy_id=strategy_id)
             result["positions"] = positions
             result["positions_error"] = None
         except Exception as exc:
@@ -70,7 +71,7 @@ def _query_holdings() -> dict:
 
         # Portfolio summary section
         try:
-            result["portfolio_summary"] = get_portfolio_summary(conn)
+            result["portfolio_summary"] = get_portfolio_summary(conn, strategy_id=strategy_id)
             result["portfolio_summary_error"] = None
         except Exception as exc:
             logger.exception("Error querying portfolio summary")
@@ -92,5 +93,5 @@ def _query_holdings() -> dict:
 
 
 @router.get("/api/holdings")
-def holdings():
-    return _query_holdings()
+def holdings(strategy_id: Optional[str] = Query(None)):
+    return _query_holdings(strategy_id=strategy_id)

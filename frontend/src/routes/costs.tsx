@@ -145,6 +145,49 @@ function CostsKpiCards({
   )
 }
 
+// --- Date Range Picker ---
+
+function DateRangePicker({
+  startDate,
+  endDate,
+  onStartChange,
+  onEndChange,
+  onClear,
+}: {
+  startDate: string
+  endDate: string
+  onStartChange: (v: string) => void
+  onEndChange: (v: string) => void
+  onClear: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="text-sm text-muted-foreground">From</label>
+      <input
+        type="date"
+        value={startDate}
+        onChange={(e) => onStartChange(e.target.value)}
+        className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
+      />
+      <label className="text-sm text-muted-foreground">To</label>
+      <input
+        type="date"
+        value={endDate}
+        onChange={(e) => onEndChange(e.target.value)}
+        className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
+      />
+      {(startDate || endDate) && (
+        <button
+          onClick={onClear}
+          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  )
+}
+
 // --- Brokerage Trades Table ---
 
 type TradeSortKey = "ticker" | "trade_date" | "action" | "estimated_cost"
@@ -374,7 +417,12 @@ function VpsCostCard({
 // --- Costs Page ---
 
 function CostsPage() {
-  const { data, isLoading, isError, error, refetch } = useCosts()
+  const [startDate, setStartDate] = useState("")
+  const [endDate, setEndDate] = useState("")
+  const { data, isLoading, isError, error, refetch } = useCosts(
+    startDate || undefined,
+    endDate || undefined,
+  )
 
   if (isLoading) return <CostsSkeleton />
   if (isError) {
@@ -392,7 +440,19 @@ function CostsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Costs</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold">Costs</h1>
+        <DateRangePicker
+          startDate={startDate}
+          endDate={endDate}
+          onStartChange={setStartDate}
+          onEndChange={setEndDate}
+          onClear={() => {
+            setStartDate("")
+            setEndDate("")
+          }}
+        />
+      </div>
 
       {data.message && (
         <p className="text-sm text-muted-foreground">{data.message}</p>

@@ -1,6 +1,7 @@
 import logging
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from src.config import settings
 from src.db.connection import get_db_connection
@@ -58,21 +59,76 @@ def _get_arena_comparison_from_portfolio(conn) -> list[dict]:
     return results
 
 
-def _query_performance() -> dict:
+def _get_strategy_comparison(conn) -> list[dict]:
+    """Return per-strategy performance summary for multi-portfolio comparison."""
+    rows = conn.execute(
+        """
+        SELECT strategy_id,
+               MIN(date) AS start_date,
+               MAX(date) AS end_date
+        FROM sim_portfolio_snapshots
+        WHERE total_value IS NOT NULL
+        GROUP BY strategy_id
+        ORDER BY strategy_id
+        """
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        sid = row["strategy_id"]
+        start_date = row["start_date"]
+        end_date = row["end_date"]
+
+        start_row = conn.execute(
+            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            (start_date, sid),
+        ).fetchone()
+
+        end_row = conn.execute(
+            "SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, win_rate, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            (end_date, sid),
+        ).fetchone()
+
+        if start_row is None or end_row is None:
+            continue
+
+        start_val = start_row["total_value"]
+        end_val = end_row["total_value"]
+        return_pct = end_row["total_pnl_pct"]
+        if return_pct is None and start_val and start_val > 0:
+            return_pct = round(((end_val - start_val) / start_val) * 100, 2)
+
+        results.append({
+            "strategy_id": sid,
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_value": start_val,
+            "latest_value": end_val,
+            "return_pct": round(return_pct, 2) if return_pct is not None else None,
+            "spy_return_pct": round(end_row["sp500_return_pct"], 2) if end_row["sp500_return_pct"] is not None else None,
+            "alpha_pct": round(end_row["alpha_pct"], 2) if end_row["alpha_pct"] is not None else None,
+            "win_rate": round(end_row["win_rate"], 2) if end_row["win_rate"] is not None else None,
+            "total_trades": end_row["total_trades"] or 0,
+        })
+
+    return results
+
+
+def _query_performance(strategy_id: str | None = None) -> dict:
     """Query portfolio and supervisor DBs for performance data."""
     result: dict = {"message": None}
 
-    # --- Portfolio DB: portfolio summary + snapshots + arena ---
+    # --- Portfolio DB: portfolio summary + snapshots + arena + strategy comparison ---
     portfolio_path = settings.portfolio_db_path
     if not portfolio_path:
-        for key in ["portfolio_summary", "snapshots", "arena_comparison"]:
+        for key in ["portfolio_summary", "snapshots", "arena_comparison", "strategy_comparison"]:
             result[key] = None
             result[f"{key}_error"] = "portfolio.db not accessible: path not configured"
     else:
         try:
             conn = get_db_connection(portfolio_path)
         except Exception as exc:
-            for key in ["portfolio_summary", "snapshots", "arena_comparison"]:
+            for key in ["portfolio_summary", "snapshots", "arena_comparison", "strategy_comparison"]:
                 result[key] = None
                 result[f"{key}_error"] = f"portfolio.db not accessible: {exc}"
             conn = None
@@ -80,7 +136,7 @@ def _query_performance() -> dict:
         if conn is not None:
             try:
                 try:
-                    result["portfolio_summary"] = get_portfolio_performance(conn)
+                    result["portfolio_summary"] = get_portfolio_performance(conn, strategy_id=strategy_id)
                     result["portfolio_summary_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio performance")
@@ -88,7 +144,7 @@ def _query_performance() -> dict:
                     result["portfolio_summary_error"] = str(exc)
 
                 try:
-                    result["snapshots"] = get_portfolio_snapshots(conn)
+                    result["snapshots"] = get_portfolio_snapshots(conn, strategy_id=strategy_id)
                     result["snapshots_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio snapshots")
@@ -102,6 +158,14 @@ def _query_performance() -> dict:
                     logger.exception("Error querying arena comparison")
                     result["arena_comparison"] = None
                     result["arena_comparison_error"] = str(exc)
+
+                try:
+                    result["strategy_comparison"] = _get_strategy_comparison(conn)
+                    result["strategy_comparison_error"] = None
+                except Exception as exc:
+                    logger.exception("Error querying strategy comparison")
+                    result["strategy_comparison"] = None
+                    result["strategy_comparison_error"] = str(exc)
             finally:
                 conn.close()
 
@@ -148,5 +212,5 @@ def _query_performance() -> dict:
 
 
 @router.get("/api/performance")
-def performance():
-    return _query_performance()
+def performance(strategy_id: Optional[str] = Query(None)):
+    return _query_performance(strategy_id=strategy_id)

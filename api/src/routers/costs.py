@@ -1,6 +1,7 @@
 import logging
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from src.config import VPS_MONTHLY_COST, settings
 from src.db.connection import get_db_connection
@@ -10,7 +11,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _query_costs() -> dict:
+def _query_costs(start_date: str | None = None, end_date: str | None = None) -> dict:
     """Query portfolio and supervisor DBs for cost data.
 
     Each section is independently wrapped so partial failures produce
@@ -41,7 +42,7 @@ def _query_costs() -> dict:
         if conn is not None:
             try:
                 try:
-                    brokerage = get_brokerage_costs(conn)
+                    brokerage = get_brokerage_costs(conn, start_date=start_date, end_date=end_date)
                     result["brokerage"] = brokerage
                     result["brokerage_error"] = None
                 except Exception as exc:
@@ -76,7 +77,7 @@ def _query_costs() -> dict:
         if conn is not None:
             try:
                 from src.db.costs import get_api_costs
-                api_costs = get_api_costs(conn)
+                api_costs = get_api_costs(conn, start_date=start_date, end_date=end_date)
                 result["api_costs"] = api_costs
                 result["api_costs_error"] = None
             except Exception as exc:
@@ -124,5 +125,8 @@ def _query_costs() -> dict:
 
 
 @router.get("/api/costs")
-def costs():
-    return _query_costs()
+def costs(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    return _query_costs(start_date=start_date, end_date=end_date)

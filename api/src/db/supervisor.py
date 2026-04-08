@@ -16,7 +16,12 @@ def get_agent_statuses(conn: sqlite3.Connection) -> list[dict]:
         WHERE id IN (
             SELECT MAX(id) FROM health_checks GROUP BY component
         )
-        ORDER BY component
+        ORDER BY CASE LOWER(status)
+            WHEN 'down' THEN 0
+            WHEN 'degraded' THEN 1
+            WHEN 'healthy' THEN 2
+            ELSE 3
+        END, component
         """
     ).fetchall()
     return [dict(row) for row in rows]

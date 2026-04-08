@@ -22,6 +22,7 @@ import {
   Users,
 } from "lucide-react"
 import { usePerformance } from "@/api/usePerformance"
+import { useStrategies } from "@/api/useStrategies"
 import { ErrorCard } from "@/components/ErrorCard"
 import { ChartCard } from "@/components/ChartCard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -39,6 +40,7 @@ import type {
   PredictionAccuracy,
   Calibration,
   ArenaEntry,
+  StrategyComparison,
 } from "@/types/performance"
 
 export const Route = createFileRoute("/performance")({
@@ -176,6 +178,85 @@ function PerformanceKpiCards({ summary }: { summary: PortfolioSummary }) {
         </Card>
       ))}
     </div>
+  )
+}
+
+// --- Strategy Comparison Table ---
+
+function StrategyComparisonTable({
+  strategies,
+}: {
+  strategies: StrategyComparison[]
+}) {
+  return (
+    <section aria-label="Strategy Comparison">
+      <h2 className="mb-3 text-base font-semibold">Multi-Portfolio Comparison</h2>
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" role="table">
+              <thead>
+                <tr>
+                  <th className="px-3 py-2 text-left text-sm font-semibold text-muted-foreground">Strategy</th>
+                  <th className="px-3 py-2 text-left text-sm font-semibold text-muted-foreground">Since</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Value</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Return</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">SPY</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Alpha</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Win Rate</th>
+                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Trades</th>
+                </tr>
+              </thead>
+              <tbody>
+                {strategies.map((s, i) => (
+                  <tr
+                    key={s.strategy_id}
+                    className={cn(
+                      "h-10 border-b border-border/50",
+                      i % 2 === 1 && "bg-muted/50"
+                    )}
+                  >
+                    <td className="px-3 py-1 font-medium">{s.strategy_id}</td>
+                    <td className="px-3 py-1 text-muted-foreground">{s.start_date}</td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      {s.latest_value != null ? `$${s.latest_value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      <span className={cn(
+                        s.return_pct != null && s.return_pct > 0 && "text-success",
+                        s.return_pct != null && s.return_pct < 0 && "text-destructive"
+                      )}>
+                        {formatPct(s.return_pct)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      <span className={cn(
+                        s.spy_return_pct != null && s.spy_return_pct > 0 && "text-success",
+                        s.spy_return_pct != null && s.spy_return_pct < 0 && "text-destructive"
+                      )}>
+                        {formatPct(s.spy_return_pct)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      <span className={cn(
+                        s.alpha_pct != null && s.alpha_pct > 0 && "text-success",
+                        s.alpha_pct != null && s.alpha_pct < 0 && "text-destructive"
+                      )}>
+                        {formatPct(s.alpha_pct)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      {s.win_rate != null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"}
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">{s.total_trades}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
   )
 }
 
@@ -679,9 +760,13 @@ function PnlChart({ snapshots }: { snapshots: Snapshot[] }) {
 // --- Performance Page ---
 
 function PerformancePage() {
-  const { data, isLoading, isError, error, refetch } = usePerformance()
+  const [strategyId, setStrategyId] = useState<string>("")
+  const { data: strategiesData } = useStrategies()
+  const { data, isLoading, isError, error, refetch } = usePerformance(strategyId || undefined)
   const { session } = Route.useSearch()
   const navigate = Route.useNavigate()
+
+  const strategies = strategiesData?.strategies ?? []
 
   if (isLoading) return <PerformanceSkeleton />
   if (isError) {
@@ -700,10 +785,33 @@ function PerformancePage() {
 
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Performance</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold">Performance</h1>
+
+        {strategies.length > 1 && (
+          <select
+            value={strategyId}
+            onChange={(e) => setStrategyId(e.target.value)}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+            aria-label="Filter by strategy"
+          >
+            <option value="">All Strategies</option>
+            {strategies.map((s) => (
+              <option key={s.strategy_id} value={s.strategy_id}>
+                {s.strategy_id} (since {s.start_date})
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {data?.message && (
         <p className="text-sm text-muted-foreground">{data.message}</p>
+      )}
+
+      {/* Strategy Comparison Table */}
+      {!strategyId && data?.strategy_comparison && data.strategy_comparison.length > 1 && (
+        <StrategyComparisonTable strategies={data.strategy_comparison} />
       )}
 
       {/* KPI Summary Cards */}

@@ -45,6 +45,19 @@ export interface Snapshot {
   spy_value: number | null
 }
 
+export interface StrategyComparison {
+  strategy_id: string
+  start_date: string
+  end_date: string
+  start_value: number
+  latest_value: number
+  return_pct: number | null
+  spy_return_pct: number | null
+  alpha_pct: number | null
+  win_rate: number | null
+  total_trades: number
+}
+
 export interface PerformanceResponse {
   message: string | null
   portfolio_summary: PortfolioSummary | null
@@ -57,4 +70,6 @@ export interface PerformanceResponse {
   calibration_error: string | null
   arena_comparison: ArenaEntry[] | null
   arena_comparison_error: string | null
+  strategy_comparison: StrategyComparison[] | null
+  strategy_comparison_error: string | null
 }

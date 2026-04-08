@@ -4,7 +4,11 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 
-def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
+def get_brokerage_costs(
+    conn: sqlite3.Connection,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
     """Return per-trade brokerage fees and cumulative total.
 
     Real trade_events schema: timestamp (not scan_date), event_type (not action),
@@ -13,12 +17,25 @@ def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
     trades: list[dict] = []
     cumulative = 0.0
 
+    where_clauses = []
+    params: list[str] = []
+    if start_date:
+        where_clauses.append("timestamp >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("timestamp <= ? || 'T23:59:59'")
+        params.append(end_date)
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
     rows = conn.execute(
-        """
+        f"""
         SELECT ticker, timestamp, event_type, entry_price, estimated_cost_dollars
         FROM trade_events
+        {where_sql}
         ORDER BY timestamp DESC, ticker
-        """
+        """,
+        params,
     ).fetchall()
 
     for row in rows:
@@ -53,20 +70,37 @@ def get_brokerage_costs(conn: sqlite3.Connection) -> dict:
     }
 
 
-def get_api_costs(conn: sqlite3.Connection) -> dict:
+def get_api_costs(
+    conn: sqlite3.Connection,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
     """Return API costs per model and cumulative from arena_decisions.
 
     Note: arena_decisions is in portfolio.db, not supervisor.db in the real system.
     """
+    where_clauses = []
+    params: list[str] = []
+    if start_date:
+        where_clauses.append("created_at >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("created_at <= ? || 'T23:59:59'")
+        params.append(end_date)
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
     rows = conn.execute(
-        """
+        f"""
         SELECT model_id,
                COUNT(*) AS total_decisions,
                COALESCE(SUM(cost_usd), 0) AS total_cost
         FROM arena_decisions
+        {where_sql}
         GROUP BY model_id
         ORDER BY total_cost DESC
-        """
+        """,
+        params,
     ).fetchall()
 
     per_model: list[dict] = []

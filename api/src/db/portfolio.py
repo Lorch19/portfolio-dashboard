@@ -6,6 +6,12 @@ from datetime import date
 logger = logging.getLogger(__name__)
 
 
+def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    """Return the set of column names for a table using PRAGMA."""
+    cursor = conn.execute(f"PRAGMA table_info({table_name})")
+    return {row["name"] for row in cursor.fetchall()}
+
+
 def get_latest_scan_date(conn: sqlite3.Connection) -> str | None:
     """Return the most recent scan_date from scout_candidates, or None if empty."""
     row = conn.execute("SELECT MAX(scan_date) AS latest FROM scout_candidates").fetchone()
@@ -122,20 +128,27 @@ def get_funnel_drilldown(conn: sqlite3.Connection, scan_date: str) -> list[dict]
     return results
 
 
-def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
-    """Return all open positions from sim_positions with computed P&L and days_held.
+def get_open_positions(conn: sqlite3.Connection, strategy_id: str | None = None) -> list[dict]:
+    """Return open positions from sim_positions with computed P&L and days_held.
 
-    Real schema: id, trade_event_id, ticker, sector, entry_price, entry_date,
-    shares, stop_loss, target_1, target_2, conviction (int), status, peak_price, sleeve.
-    No current_price column — use peak_price as best available.
+    Real schema includes strategy_id, current_price, peak_price.
+    Uses current_price when available, falls back to peak_price.
     """
+    # Check if current_price column exists (migration 21)
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(sim_positions)").fetchall()}
+    price_expr = "COALESCE(current_price, peak_price)" if "current_price" in cols else "peak_price"
+    strat_filter = "AND strategy_id = ?" if strategy_id and "strategy_id" in cols else ""
+    params: tuple = (strategy_id,) if strat_filter else ()
+
     rows = conn.execute(
-        """
-        SELECT ticker, sector, entry_price, entry_date, peak_price, shares,
+        f"""
+        SELECT ticker, sector, entry_price, entry_date,
+               {price_expr} AS peak_price, shares,
                sleeve, stop_loss, target_1, target_2, conviction
         FROM sim_positions
-        WHERE status = 'open'
+        WHERE status = 'open' {strat_filter}
         """,
+        params,
     ).fetchall()
 
     today = date.today()
@@ -181,22 +194,35 @@ def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
     return positions
 
 
-def get_portfolio_summary(conn: sqlite3.Connection) -> dict | None:
+def get_portfolio_summary(conn: sqlite3.Connection, strategy_id: str | None = None) -> dict | None:
     """Return latest portfolio summary from sim_portfolio_snapshots.
 
     Returns: total_value, cash, cash_pct, invested_pct, positions_count,
     portfolio_heat, regime, date.
     """
-    row = conn.execute(
-        """
-        SELECT date, total_value, cash, cash_pct, invested_pct, positions_count,
-               portfolio_heat, regime, win_rate, total_trades, closed_trades
-        FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL
-        ORDER BY date DESC
-        LIMIT 1
-        """
-    ).fetchone()
+    if strategy_id:
+        row = conn.execute(
+            """
+            SELECT date, total_value, cash, cash_pct, invested_pct, positions_count,
+                   portfolio_heat, regime, win_rate, total_trades, closed_trades
+            FROM sim_portfolio_snapshots
+            WHERE total_value IS NOT NULL AND strategy_id = ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (strategy_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT date, total_value, cash, cash_pct, invested_pct, positions_count,
+                   portfolio_heat, regime, win_rate, total_trades, closed_trades
+            FROM sim_portfolio_snapshots
+            WHERE total_value IS NOT NULL
+            ORDER BY date DESC
+            LIMIT 1
+            """
+        ).fetchone()
 
     if row is None:
         return None
@@ -226,18 +252,22 @@ def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
     return {}
 
 
-def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
+def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None = None) -> dict:
     """Return portfolio performance summary.
 
     Real schema: date, strategy_id, total_value, sp500_return_pct, alpha_pct,
     total_pnl_pct, win_rate, total_trades, closed_trades.
     """
+    strat_filter = "AND strategy_id = ?" if strategy_id else ""
+    strat_params: tuple = (strategy_id,) if strategy_id else ()
+
     row = conn.execute(
-        """
+        f"""
         SELECT MIN(date) AS start_date, MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL
-        """
+        WHERE total_value IS NOT NULL {strat_filter}
+        """,
+        strat_params,
     ).fetchone()
 
     if row is None or row["start_date"] is None:
@@ -251,13 +281,13 @@ def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
     end_date = row["end_date"]
 
     start_row = conn.execute(
-        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid ASC LIMIT 1",
-        (start_date,),
+        f"SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL {strat_filter} ORDER BY rowid ASC LIMIT 1",
+        (start_date, *strat_params),
     ).fetchone()
 
     end_row = conn.execute(
-        "SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid DESC LIMIT 1",
-        (end_date,),
+        f"SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL {strat_filter} ORDER BY rowid DESC LIMIT 1",
+        (end_date, *strat_params),
     ).fetchone()
 
     if start_row is None or end_row is None:
@@ -286,7 +316,6 @@ def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
 
     cagr = _compute_cagr(start_value, end_value, start_date, end_date)
 
-    # Win rate and closed trades from latest snapshot
     win_rate = end_row["win_rate"] if "win_rate" in end_row.keys() else None
     closed_trades = end_row["closed_trades"] if "closed_trades" in end_row.keys() else None
 
@@ -304,19 +333,30 @@ def get_portfolio_performance(conn: sqlite3.Connection) -> dict:
     }
 
 
-def get_portfolio_snapshots(conn: sqlite3.Connection) -> list[dict]:
+def get_portfolio_snapshots(conn: sqlite3.Connection, strategy_id: str | None = None) -> list[dict]:
     """Return time-series portfolio values for charting.
 
     Real schema: date, total_value, sp500_return_pct (percentage, not SPY value).
     """
-    rows = conn.execute(
-        """
-        SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
-        FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL
-        ORDER BY date ASC
-        """,
-    ).fetchall()
+    if strategy_id:
+        rows = conn.execute(
+            """
+            SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
+            FROM sim_portfolio_snapshots
+            WHERE total_value IS NOT NULL AND strategy_id = ?
+            ORDER BY date ASC
+            """,
+            (strategy_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
+            FROM sim_portfolio_snapshots
+            WHERE total_value IS NOT NULL
+            ORDER BY date ASC
+            """,
+        ).fetchall()
 
     return [
         {
@@ -336,17 +376,46 @@ def get_recent_decisions(
     Tries guardian_decisions first. If empty (common — pipeline may skip that table),
     falls back to trade_events as the primary decision record.
     Enriches with scout_candidates scoring data.
+    Uses dynamic column detection so extra columns in production are included
+    automatically while working with minimal test schemas.
     """
-    all_keys = [
-        "scan_date", "ticker", "decision", "conviction",
+    base_keys = ["scan_date", "ticker", "decision", "conviction"]
+
+    # Enrichment columns to pull from trade_events when available
+    te_enrichment_cols = [
         "thesis_full_text", "primary_catalyst", "invalidation_trigger", "decision_tier",
+        "bear_case_text", "pre_mortem_text", "moat_thesis",
+        "critique_quality_score", "critique_changed_decision", "challenge_gate_result",
+        "model_id", "decided_by_model",
+        "pe_at_entry", "median_pe_at_entry", "roic_at_entry", "sleeve",
+        "pnl_pct", "realized_rr", "max_favorable_excursion_pct", "days_held",
+        "sp500_return_same_period", "exit_price", "exit_date", "exit_trigger", "exit_reason",
+        "entry_price", "stop_loss", "target_1", "target_2",
+    ]
+
+    # Enrichment columns to pull from scout_candidates when available
+    sc_enrichment_cols = [
         "fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
         "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
         "relative_strength", "valuation_verdict",
+        "technical_score", "michael_quality_score", "beneish_m_score", "altman_z_score",
+        "roic_wacc_spread", "valuation_fair_value", "valuation_upside_pct",
+        "momentum_at_scan", "atr", "volume_ratio",
+        "insider_signal", "insider_net_value_usd", "insider_buy_cluster",
+        "sector", "regime_at_scan", "price_at_scan",
     ]
 
+    # Detect available columns
+    te_cols = _get_table_columns(conn, "trade_events")
+    sc_cols = _get_table_columns(conn, "scout_candidates")
+    available_te = [c for c in te_enrichment_cols if c in te_cols]
+    available_sc = [c for c in sc_enrichment_cols if c in sc_cols]
+
+    # Build all_keys from base + available enrichment
+    all_keys = base_keys + available_te + available_sc
+
     # Try guardian_decisions first
-    rows = []
+    rows: list = []
     try:
         count = conn.execute("SELECT COUNT(*) AS cnt FROM guardian_decisions").fetchone()["cnt"]
         if count > 0:
@@ -363,47 +432,35 @@ def get_recent_decisions(
     except Exception:
         pass
 
-    # Fallback: use trade_events as decision records
+    # Fallback: use trade_events as decision records (with enrichment columns)
     if not rows:
         try:
+            te_select = "substr(timestamp, 1, 10) AS scan_date, ticker, event_type AS decision, conviction"
+            if available_te:
+                te_select += ", " + ", ".join(available_te)
+
             if ticker is not None:
                 rows = conn.execute(
-                    """
-                    SELECT substr(timestamp, 1, 10) AS scan_date, ticker, event_type AS decision,
-                           conviction, thesis_full_text, primary_catalyst,
-                           invalidation_trigger, decision_tier
-                    FROM trade_events
-                    WHERE ticker = ?
-                    ORDER BY timestamp DESC
-                    """,
+                    f"SELECT {te_select} FROM trade_events WHERE ticker = ? ORDER BY timestamp DESC",
                     (ticker,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    """
-                    SELECT substr(timestamp, 1, 10) AS scan_date, ticker, event_type AS decision,
-                           conviction, thesis_full_text, primary_catalyst,
-                           invalidation_trigger, decision_tier
-                    FROM trade_events
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                    """,
+                    f"SELECT {te_select} FROM trade_events ORDER BY timestamp DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
         except Exception:
             pass
 
-    # Build scoring lookup from scout_candidates
+    # Build scoring lookup from scout_candidates (with enrichment columns)
     scoring_map: dict[str, dict] = {}
     try:
+        sc_select = "ticker, scan_date"
+        if available_sc:
+            sc_select += ", " + ", ".join(available_sc)
+
         scoring_rows = conn.execute(
-            """
-            SELECT ticker, scan_date, fundamental_score, roic_at_scan, prev_roic, roic_delta,
-                   rsi, pe_at_scan, median_pe, pe_discount_pct, relative_strength, valuation_verdict
-            FROM scout_candidates
-            WHERE fundamental_score IS NOT NULL
-            ORDER BY scan_date DESC
-            """
+            f"SELECT {sc_select} FROM scout_candidates ORDER BY scan_date DESC"
         ).fetchall()
         for sr in scoring_rows:
             key = sr["ticker"]
@@ -419,12 +476,10 @@ def get_recent_decisions(
         for key in all_keys:
             entry[key] = row_dict.get(key, None)
 
-        # Merge scoring from scout_candidates
+        # Merge scoring from scout_candidates (fill nulls only)
         scoring = scoring_map.get(row_dict["ticker"], {})
-        for k in ["fundamental_score", "roic_at_scan", "prev_roic", "roic_delta",
-                   "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
-                   "relative_strength", "valuation_verdict"]:
-            if entry[k] is None:
+        for k in available_sc:
+            if entry.get(k) is None:
                 entry[k] = scoring.get(k)
 
         results.append(entry)
@@ -437,8 +492,7 @@ def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
 
     Real schema: t_plus_20 (not forward_return_pct).
     """
-    cursor = conn.execute("PRAGMA table_info(rejection_log)")
-    available_cols = {row["name"] for row in cursor.fetchall()}
+    available_cols = _get_table_columns(conn, "rejection_log")
 
     if "t_plus_20" not in available_cols:
         logger.warning("rejection_log missing t_plus_20 column — returning empty counterfactuals")
@@ -495,6 +549,59 @@ def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
     return {
         "top_misses": top_misses,
         "top_good_rejections": top_good_rejections,
+    }
+
+
+def get_ticker_deep_dive(conn: sqlite3.Connection, ticker: str) -> dict:
+    """Comprehensive ticker data for deep-dive view.
+
+    Returns all decisions, scoring history across scans, and rejection history.
+    """
+    decisions = get_recent_decisions(conn, ticker=ticker, limit=200)
+
+    # Scoring history: all scout_candidates rows for this ticker
+    scoring_history: list[dict] = []
+    try:
+        sc_cols = _get_table_columns(conn, "scout_candidates")
+        sc_fields = ["scan_date", "ticker"]
+        sc_enrichment = [
+            "fundamental_score", "technical_score", "roic_at_scan", "prev_roic",
+            "roic_delta", "rsi", "pe_at_scan", "median_pe", "pe_discount_pct",
+            "relative_strength", "valuation_verdict", "michael_quality_score",
+            "beneish_m_score", "altman_z_score", "momentum_at_scan",
+            "price_at_scan", "sector",
+        ]
+        sc_available = [c for c in sc_enrichment if c in sc_cols]
+        sc_select = ", ".join(sc_fields + sc_available)
+
+        rows = conn.execute(
+            f"SELECT {sc_select} FROM scout_candidates WHERE ticker = ? ORDER BY scan_date DESC",
+            (ticker,),
+        ).fetchall()
+        scoring_history = [dict(r) for r in rows]
+    except Exception:
+        pass
+
+    # Rejection history
+    rejection_history: list[dict] = []
+    try:
+        rl_cols = _get_table_columns(conn, "rejection_log")
+        rl_fields = ["scan_date", "ticker", "rejected_at_gate", "rejection_reason"]
+        rl_extra = [c for c in ["t_plus_5", "t_plus_10", "t_plus_20"] if c in rl_cols]
+        rl_select = ", ".join(rl_fields + rl_extra)
+
+        rows = conn.execute(
+            f"SELECT {rl_select} FROM rejection_log WHERE ticker = ? ORDER BY scan_date DESC",
+            (ticker,),
+        ).fetchall()
+        rejection_history = [dict(r) for r in rows]
+    except Exception:
+        pass
+
+    return {
+        "decisions": decisions,
+        "scoring_history": scoring_history,
+        "rejection_history": rejection_history,
     }
 
 

@@ -112,6 +112,8 @@ const MOCK_DATA: PerformanceResponse = {
     },
   ],
   arena_comparison_error: null,
+  strategy_comparison: null,
+  strategy_comparison_error: null,
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

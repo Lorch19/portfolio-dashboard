@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { useState } from "react"
 import { useHoldings } from "@/api/useHoldings"
+import { useStrategies } from "@/api/useStrategies"
 import { ErrorCard } from "@/components/ErrorCard"
 import { HoldingsTable } from "@/components/HoldingsTable"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,7 +12,11 @@ export const Route = createFileRoute("/holdings")({
 })
 
 function HoldingsPage() {
-  const { data, isLoading, isError, error, refetch } = useHoldings()
+  const [strategyId, setStrategyId] = useState<string>("")
+  const { data: strategiesData } = useStrategies()
+  const { data, isLoading, isError, error, refetch } = useHoldings(strategyId || undefined)
+
+  const strategies = strategiesData?.strategies ?? []
 
   if (isLoading) return <HoldingsSkeleton />
   if (isError) {
@@ -25,10 +31,36 @@ function HoldingsPage() {
   }
 
   const summary = data?.portfolio_summary
+  const selectedStrategy = strategies.find((s) => s.strategy_id === strategyId)
 
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Holdings</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold">Holdings</h1>
+
+        {strategies.length > 1 && (
+          <div className="flex items-center gap-3">
+            <select
+              value={strategyId}
+              onChange={(e) => setStrategyId(e.target.value)}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+              aria-label="Filter by strategy"
+            >
+              <option value="">All Strategies</option>
+              {strategies.map((s) => (
+                <option key={s.strategy_id} value={s.strategy_id}>
+                  {s.strategy_id} (since {s.start_date})
+                </option>
+              ))}
+            </select>
+            {selectedStrategy && (
+              <span className="text-xs text-muted-foreground">
+                {selectedStrategy.open_positions} positions
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Portfolio Summary Header */}
       {summary && (
