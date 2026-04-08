@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { useCosts } from "@/api/useCosts"
 import { useStrategies } from "@/api/useStrategies"
+import { DateRangeSelector } from "@/components/DateRangeSelector"
 import { ErrorCard } from "@/components/ErrorCard"
 import { ChartCard } from "@/components/ChartCard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -147,47 +148,6 @@ function CostsKpiCards({
 }
 
 // --- Date Range Picker ---
-
-function DateRangePicker({
-  startDate,
-  endDate,
-  onStartChange,
-  onEndChange,
-  onClear,
-}: {
-  startDate: string
-  endDate: string
-  onStartChange: (v: string) => void
-  onEndChange: (v: string) => void
-  onClear: () => void
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="text-sm text-muted-foreground">From</label>
-      <input
-        type="date"
-        value={startDate}
-        onChange={(e) => onStartChange(e.target.value)}
-        className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
-      />
-      <label className="text-sm text-muted-foreground">To</label>
-      <input
-        type="date"
-        value={endDate}
-        onChange={(e) => onEndChange(e.target.value)}
-        className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
-      />
-      {(startDate || endDate) && (
-        <button
-          onClick={onClear}
-          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Clear
-        </button>
-      )}
-    </div>
-  )
-}
 
 // --- Brokerage Trades Table ---
 
@@ -464,7 +424,7 @@ function CostsPage() {
               ))}
             </select>
           )}
-        <DateRangePicker
+        <DateRangeSelector
           startDate={startDate}
           endDate={endDate}
           onStartChange={setStartDate}

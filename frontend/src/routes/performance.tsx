@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import { usePerformance } from "@/api/usePerformance"
 import { useStrategies } from "@/api/useStrategies"
+import { DateRangeSelector } from "@/components/DateRangeSelector"
 import { ErrorCard } from "@/components/ErrorCard"
 import { ChartCard } from "@/components/ChartCard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -825,30 +826,13 @@ function PerformancePage() {
             </select>
           )}
 
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground">From</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
-            />
-            <label className="text-sm text-muted-foreground">To</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
-            />
-            {(startDate || endDate) && (
-              <button
-                onClick={() => { setStartDate(""); setEndDate("") }}
-                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+          <DateRangeSelector
+            startDate={startDate}
+            endDate={endDate}
+            onStartChange={setStartDate}
+            onEndChange={setEndDate}
+            onClear={() => { setStartDate(""); setEndDate("") }}
+          />
         </div>
       </div>
 
