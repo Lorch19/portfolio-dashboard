@@ -333,30 +333,37 @@ def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None 
     }
 
 
-def get_portfolio_snapshots(conn: sqlite3.Connection, strategy_id: str | None = None) -> list[dict]:
+def get_portfolio_snapshots(
+    conn: sqlite3.Connection,
+    strategy_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict]:
     """Return time-series portfolio values for charting.
 
     Real schema: date, total_value, sp500_return_pct (percentage, not SPY value).
     """
+    where = ["total_value IS NOT NULL"]
+    params: list[str] = []
     if strategy_id:
-        rows = conn.execute(
-            """
-            SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
-            FROM sim_portfolio_snapshots
-            WHERE total_value IS NOT NULL AND strategy_id = ?
-            ORDER BY date ASC
-            """,
-            (strategy_id,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
-            FROM sim_portfolio_snapshots
-            WHERE total_value IS NOT NULL
-            ORDER BY date ASC
-            """,
-        ).fetchall()
+        where.append("strategy_id = ?")
+        params.append(strategy_id)
+    if start_date:
+        where.append("date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("date <= ?")
+        params.append(end_date)
+
+    rows = conn.execute(
+        f"""
+        SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
+        FROM sim_portfolio_snapshots
+        WHERE {' AND '.join(where)}
+        ORDER BY date ASC
+        """,
+        params,
+    ).fetchall()
 
     return [
         {

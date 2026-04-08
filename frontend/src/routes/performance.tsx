@@ -761,8 +761,14 @@ function PnlChart({ snapshots }: { snapshots: Snapshot[] }) {
 
 function PerformancePage() {
   const [strategyId, setStrategyId] = useState<string>("")
+  const [startDate, setStartDate] = useState<string>("")
+  const [endDate, setEndDate] = useState<string>("")
   const { data: strategiesData } = useStrategies()
-  const { data, isLoading, isError, error, refetch } = usePerformance(strategyId || undefined)
+  const { data, isLoading, isError, error, refetch } = usePerformance(
+    strategyId || undefined,
+    startDate || undefined,
+    endDate || undefined,
+  )
   const { session } = Route.useSearch()
   const navigate = Route.useNavigate()
 
@@ -788,21 +794,48 @@ function PerformancePage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Performance</h1>
 
-        {strategies.length > 1 && (
-          <select
-            value={strategyId}
-            onChange={(e) => setStrategyId(e.target.value)}
-            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
-            aria-label="Filter by strategy"
-          >
-            <option value="">All Strategies</option>
-            {strategies.map((s) => (
-              <option key={s.strategy_id} value={s.strategy_id}>
-                {s.strategy_id} (since {s.start_date})
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {strategies.length > 1 && (
+            <select
+              value={strategyId}
+              onChange={(e) => setStrategyId(e.target.value)}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+              aria-label="Filter by strategy"
+            >
+              <option value="">All Strategies</option>
+              {strategies.map((s) => (
+                <option key={s.strategy_id} value={s.strategy_id}>
+                  {s.strategy_id} (since {s.start_date})
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground">From</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
+            />
+            <label className="text-sm text-muted-foreground">To</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
+            />
+            {(startDate || endDate) && (
+              <button
+                onClick={() => { setStartDate(""); setEndDate("") }}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {data?.message && (

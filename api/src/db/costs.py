@@ -123,8 +123,7 @@ def get_api_costs(
 def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     """Return total portfolio return from sim_portfolio_snapshots.
 
-    Real schema: date (not snapshot_date), total_value (not portfolio_value),
-    no ticker column (all rows are portfolio-level).
+    Sums across all strategies: total starting capital vs total current value.
     """
     row = conn.execute(
         """
@@ -140,13 +139,15 @@ def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     start_date = row["start_date"]
     end_date = row["end_date"]
 
+    # Sum across all strategies on the start date
     start_row = conn.execute(
-        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid ASC LIMIT 1",
+        "SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL",
         (start_date,),
     ).fetchone()
 
+    # Sum across all strategies on the end date
     end_row = conn.execute(
-        "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+        "SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL",
         (end_date,),
     ).fetchone()
 

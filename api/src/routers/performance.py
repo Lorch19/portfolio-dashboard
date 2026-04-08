@@ -114,7 +114,11 @@ def _get_strategy_comparison(conn) -> list[dict]:
     return results
 
 
-def _query_performance(strategy_id: str | None = None) -> dict:
+def _query_performance(
+    strategy_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
     """Query portfolio and supervisor DBs for performance data."""
     result: dict = {"message": None}
 
@@ -144,7 +148,7 @@ def _query_performance(strategy_id: str | None = None) -> dict:
                     result["portfolio_summary_error"] = str(exc)
 
                 try:
-                    result["snapshots"] = get_portfolio_snapshots(conn, strategy_id=strategy_id)
+                    result["snapshots"] = get_portfolio_snapshots(conn, strategy_id=strategy_id, start_date=start_date, end_date=end_date)
                     result["snapshots_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio snapshots")
@@ -212,5 +216,9 @@ def _query_performance(strategy_id: str | None = None) -> dict:
 
 
 @router.get("/api/performance")
-def performance(strategy_id: Optional[str] = Query(None)):
-    return _query_performance(strategy_id=strategy_id)
+def performance(
+    strategy_id: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    return _query_performance(strategy_id=strategy_id, start_date=start_date, end_date=end_date)
