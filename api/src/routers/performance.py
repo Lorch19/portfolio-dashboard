@@ -91,7 +91,7 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
         s_end = row["end_date"]
 
         start_row = conn.execute(
-            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            "SELECT total_value, sp500_return_pct FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
             (s_start, sid),
         ).fetchone()
 
@@ -109,6 +109,18 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
         if return_pct is None and start_val and start_val > 0:
             return_pct = round(((end_val - start_val) / start_val) * 100, 2)
 
+        # Compute SPY return for the filtered range (delta of cumulative values)
+        end_spy = end_row["sp500_return_pct"]
+        start_spy = start_row["sp500_return_pct"]
+        if end_spy is not None and start_spy is not None:
+            spy_return_pct = round(end_spy - start_spy, 2)
+        elif end_spy is not None:
+            spy_return_pct = round(end_spy, 2)
+        else:
+            spy_return_pct = None
+
+        alpha_pct = round(return_pct - spy_return_pct, 2) if return_pct is not None and spy_return_pct is not None else None
+
         results.append({
             "strategy_id": sid,
             "start_date": s_start,
@@ -116,8 +128,8 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
             "start_value": start_val,
             "latest_value": end_val,
             "return_pct": round(return_pct, 2) if return_pct is not None else None,
-            "spy_return_pct": round(end_row["sp500_return_pct"], 2) if end_row["sp500_return_pct"] is not None else None,
-            "alpha_pct": round(end_row["alpha_pct"], 2) if end_row["alpha_pct"] is not None else None,
+            "spy_return_pct": spy_return_pct,
+            "alpha_pct": alpha_pct,
             "win_rate": round(end_row["win_rate"], 2) if end_row["win_rate"] is not None else None,
             "total_trades": end_row["total_trades"] or 0,
         })
