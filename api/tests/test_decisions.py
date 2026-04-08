@@ -185,7 +185,8 @@ def test_decisions_empty_tables(client, tmp_path, monkeypatch):
 
     assert data["decisions"] == []
     assert data["decisions_error"] is None
-    assert data["counterfactuals"] == {"top_misses": [], "top_good_rejections": []}
+    assert data["counterfactuals"]["top_misses"] == []
+    assert data["counterfactuals"]["top_good_rejections"] == []
     assert data["counterfactuals_error"] is None
     assert data["predictions"] == []
     assert data["predictions_error"] is None

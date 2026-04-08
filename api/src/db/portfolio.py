@@ -31,10 +31,16 @@ def get_funnel_counts(conn: sqlite3.Connection, scan_date: str) -> dict:
         (scan_date,),
     ).fetchone()["cnt"]
 
-    # Scout "passed" = candidates not in rejection_log for this date
-    # Count distinct tickers rejected (not total rejection rows — one ticker can fail multiple gates)
+    # Scout "passed" = scout candidates whose tickers are NOT in rejection_log for this date.
+    # rejection_log contains all screened-and-rejected tickers (much larger than scout_candidates),
+    # so we intersect: only count rejections of tickers that are actually in scout_candidates.
     scout_rejected_tickers = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) AS cnt FROM rejection_log WHERE scan_date = ?",
+        """
+        SELECT COUNT(DISTINCT r.ticker) AS cnt
+        FROM rejection_log r
+        INNER JOIN scout_candidates s ON r.ticker = s.ticker AND r.scan_date = s.scan_date
+        WHERE r.scan_date = ?
+        """,
         (scan_date,),
     ).fetchone()["cnt"]
     scout_passed = max(scout_universe - scout_rejected_tickers, 0)
@@ -569,9 +575,16 @@ def get_counterfactuals(conn: sqlite3.Connection, limit: int = 20) -> dict:
         for row in good_rows
     ]
 
+    # Count how many rejections have no forward return data yet
+    pending_row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM rejection_log WHERE t_plus_20 IS NULL"
+    ).fetchone()
+    pending_count = pending_row["cnt"] if pending_row else 0
+
     return {
         "top_misses": top_misses,
         "top_good_rejections": top_good_rejections,
+        "pending_count": pending_count,
     }
 
 

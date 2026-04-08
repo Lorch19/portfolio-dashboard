@@ -99,6 +99,7 @@ export interface CounterfactualEntry {
 export interface Counterfactuals {
   top_misses: CounterfactualEntry[]
   top_good_rejections: CounterfactualEntry[]
+  pending_count?: number
 }
 
 export interface DecisionsResponse {

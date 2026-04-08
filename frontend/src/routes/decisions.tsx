@@ -924,9 +924,11 @@ function CounterfactualTable({
 function CounterfactualSection({
   topMisses,
   topGoodRejections,
+  pendingCount,
 }: {
   topMisses: CounterfactualEntry[]
   topGoodRejections: CounterfactualEntry[]
+  pendingCount?: number
 }) {
   const gateStats = useMemo(() => {
     const allEntries = [...topMisses, ...topGoodRejections]
@@ -956,6 +958,12 @@ function CounterfactualSection({
   return (
     <section aria-label="Counterfactual Analysis">
       <h2 className="mb-3 text-base font-semibold">Counterfactual Analysis</h2>
+
+      {topMisses.length === 0 && topGoodRejections.length === 0 && pendingCount != null && pendingCount > 0 && (
+        <p className="mb-4 text-sm text-muted-foreground">
+          {pendingCount.toLocaleString()} rejections awaiting forward return data (T+20 not yet computed).
+        </p>
+      )}
 
       {gateStats.length > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1363,6 +1371,7 @@ function DecisionsListView() {
           <CounterfactualSection
             topMisses={data.counterfactuals.top_misses}
             topGoodRejections={data.counterfactuals.top_good_rejections}
+            pendingCount={data.counterfactuals.pending_count}
           />
         ) : null}
       </div>
