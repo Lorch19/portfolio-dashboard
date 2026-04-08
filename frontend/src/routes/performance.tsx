@@ -201,7 +201,6 @@ function StrategyComparisonTable({
                   <th className="px-3 py-2 text-left text-sm font-semibold text-muted-foreground">Since</th>
                   <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Value</th>
                   <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Return</th>
-                  <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">SPY</th>
                   <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Alpha</th>
                   <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Win Rate</th>
                   <th className="px-3 py-2 text-right text-sm font-semibold text-muted-foreground">Trades</th>
@@ -227,14 +226,6 @@ function StrategyComparisonTable({
                         s.return_pct != null && s.return_pct < 0 && "text-destructive"
                       )}>
                         {formatPct(s.return_pct)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1 text-right tabular-nums">
-                      <span className={cn(
-                        s.spy_return_pct != null && s.spy_return_pct > 0 && "text-success",
-                        s.spy_return_pct != null && s.spy_return_pct < 0 && "text-destructive"
-                      )}>
-                        {formatPct(s.spy_return_pct)}
                       </span>
                     </td>
                     <td className="px-3 py-1 text-right tabular-nums">
@@ -268,7 +259,6 @@ function StrategyComparisonTable({
                           {formatPct(spyReturn)}
                         </span>
                       </td>
-                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
                       <td className="px-3 py-1 text-right text-muted-foreground">—</td>
                       <td className="px-3 py-1 text-right text-muted-foreground">—</td>
                       <td className="px-3 py-1 text-right text-muted-foreground">—</td>
