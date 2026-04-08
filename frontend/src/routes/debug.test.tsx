@@ -18,7 +18,7 @@ const mockUseSearch = vi.fn().mockReturnValue({
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => {
-    return (_opts: Record<string, unknown>) => {
+    return () => {
       const route = {} as Record<string, unknown>
       route.useSearch = () => mockUseSearch()
       route.useNavigate = () => mockNavigate

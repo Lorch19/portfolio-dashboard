@@ -7,7 +7,7 @@ import type { CostsResponse } from "@/types/costs"
 // Mock TanStack Router
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => {
-    return (_opts: Record<string, unknown>) => ({})
+    return () => ({})
   },
 }))
 

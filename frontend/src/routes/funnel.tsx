@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useFunnel } from "@/api/useFunnel"
 import { ErrorCard } from "@/components/ErrorCard"
@@ -26,12 +26,12 @@ function FunnelPage() {
   const { data, isLoading, isError, error, refetch } = useFunnel(
     scan_date || undefined
   )
-  const [selectedStage, setSelectedStage] = useState<string | null>(null)
-
-  // Reset selection when scan_date changes so stale drilldown doesn't persist
-  useEffect(() => {
-    setSelectedStage(null)
-  }, [scan_date])
+  // Key on scan_date to reset selectedStage when date changes (avoids setState in effect)
+  const [selectedStage, setSelectedStage] = useState<{ date: string; stage: string | null }>({ date: scan_date, stage: null })
+  if (selectedStage.date !== scan_date) {
+    setSelectedStage({ date: scan_date, stage: null })
+  }
+  const activeStage = selectedStage.stage
 
   if (isLoading) return <FunnelSkeleton />
   if (isError) {
@@ -55,8 +55,8 @@ function FunnelPage() {
   const displayDate = scan_date || data?.scan_date || ""
 
   // Map chart stage names to backend drilldown stage names
-  const drilldownStage = selectedStage
-    ? STAGE_TO_DRILLDOWN[selectedStage] ?? selectedStage
+  const drilldownStage = activeStage
+    ? STAGE_TO_DRILLDOWN[activeStage] ?? activeStage
     : null
 
   return (
@@ -77,8 +77,8 @@ function FunnelPage() {
         <section aria-label="Funnel Chart">
           <FunnelChart
             stages={data.stages}
-            selectedStage={selectedStage}
-            onStageClick={setSelectedStage}
+            selectedStage={activeStage}
+            onStageClick={(stage) => setSelectedStage({ date: scan_date, stage })}
           />
         </section>
       ) : null}

@@ -38,7 +38,7 @@ export function renderWithRouter(
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <RouterProvider router={router as any} />
+        <RouterProvider router={router as unknown as Parameters<typeof RouterProvider>[0]["router"]} />
       </TooltipProvider>
     </QueryClientProvider>,
     renderOptions

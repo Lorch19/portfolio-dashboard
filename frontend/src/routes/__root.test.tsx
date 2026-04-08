@@ -47,7 +47,7 @@ function createTestRouter(initialPath = "/health", mobile = false) {
 describe("Root Layout", () => {
   it("renders sidebar with all 8 navigation tabs", async () => {
     const router = createTestRouter()
-    render(<RouterProvider router={router as any} />)
+    render(<RouterProvider router={router as unknown as Parameters<typeof RouterProvider>[0]["router"]} />)
 
     const tabNames = [
       "Health", "Supervisor", "Funnel", "Holdings",
@@ -61,13 +61,13 @@ describe("Root Layout", () => {
 
   it("renders Portfolio Dashboard branding", async () => {
     const router = createTestRouter()
-    render(<RouterProvider router={router as any} />)
+    render(<RouterProvider router={router as unknown as Parameters<typeof RouterProvider>[0]["router"]} />)
     expect(await screen.findByText("Portfolio Dashboard")).toBeInTheDocument()
   })
 
   it("renders hamburger menu button on mobile viewport", async () => {
     const router = createTestRouter("/health", true)
-    render(<RouterProvider router={router as any} />)
+    render(<RouterProvider router={router as unknown as Parameters<typeof RouterProvider>[0]["router"]} />)
     expect(await screen.findByRole("button", { name: /open navigation/i })).toBeInTheDocument()
   })
 })
