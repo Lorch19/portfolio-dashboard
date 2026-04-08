@@ -59,34 +59,45 @@ def _get_arena_comparison_from_portfolio(conn) -> list[dict]:
     return results
 
 
-def _get_strategy_comparison(conn) -> list[dict]:
+def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Return per-strategy performance summary for multi-portfolio comparison."""
+    where = ["total_value IS NOT NULL"]
+    params: list[str] = []
+    if start_date:
+        where.append("date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("date <= ?")
+        params.append(end_date)
+    where_clause = " AND ".join(where)
+
     rows = conn.execute(
-        """
+        f"""
         SELECT strategy_id,
                MIN(date) AS start_date,
                MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL
+        WHERE {where_clause}
         GROUP BY strategy_id
         ORDER BY strategy_id
-        """
+        """,
+        params,
     ).fetchall()
 
     results = []
     for row in rows:
         sid = row["strategy_id"]
-        start_date = row["start_date"]
-        end_date = row["end_date"]
+        s_start = row["start_date"]
+        s_end = row["end_date"]
 
         start_row = conn.execute(
             "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
-            (start_date, sid),
+            (s_start, sid),
         ).fetchone()
 
         end_row = conn.execute(
             "SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, win_rate, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
-            (end_date, sid),
+            (s_end, sid),
         ).fetchone()
 
         if start_row is None or end_row is None:
@@ -100,8 +111,8 @@ def _get_strategy_comparison(conn) -> list[dict]:
 
         results.append({
             "strategy_id": sid,
-            "start_date": start_date,
-            "end_date": end_date,
+            "start_date": s_start,
+            "end_date": s_end,
             "start_value": start_val,
             "latest_value": end_val,
             "return_pct": round(return_pct, 2) if return_pct is not None else None,
@@ -140,7 +151,7 @@ def _query_performance(
         if conn is not None:
             try:
                 try:
-                    result["portfolio_summary"] = get_portfolio_performance(conn, strategy_id=strategy_id)
+                    result["portfolio_summary"] = get_portfolio_performance(conn, strategy_id=strategy_id, start_date=start_date, end_date=end_date)
                     result["portfolio_summary_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio performance")
@@ -164,7 +175,7 @@ def _query_performance(
                     result["arena_comparison_error"] = str(exc)
 
                 try:
-                    result["strategy_comparison"] = _get_strategy_comparison(conn)
+                    result["strategy_comparison"] = _get_strategy_comparison(conn, start_date=start_date, end_date=end_date)
                     result["strategy_comparison_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying strategy comparison")

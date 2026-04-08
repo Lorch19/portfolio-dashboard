@@ -252,22 +252,38 @@ def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
     return {}
 
 
-def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None = None) -> dict:
+def get_portfolio_performance(
+    conn: sqlite3.Connection,
+    strategy_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
     """Return portfolio performance summary.
 
     Real schema: date, strategy_id, total_value, sp500_return_pct, alpha_pct,
     total_pnl_pct, win_rate, total_trades, closed_trades.
     """
-    strat_filter = "AND strategy_id = ?" if strategy_id else ""
-    strat_params: tuple = (strategy_id,) if strategy_id else ()
+    where = ["total_value IS NOT NULL"]
+    params: list[str] = []
+    if strategy_id:
+        where.append("strategy_id = ?")
+        params.append(strategy_id)
+    if start_date:
+        where.append("date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("date <= ?")
+        params.append(end_date)
+
+    where_clause = " AND ".join(where)
 
     row = conn.execute(
         f"""
         SELECT MIN(date) AS start_date, MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL {strat_filter}
+        WHERE {where_clause}
         """,
-        strat_params,
+        params,
     ).fetchone()
 
     if row is None or row["start_date"] is None:
@@ -277,24 +293,24 @@ def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None 
             "start_date": None, "end_date": None, "total_trades": 0,
         }
 
-    start_date = row["start_date"]
-    end_date = row["end_date"]
+    resolved_start = row["start_date"]
+    resolved_end = row["end_date"]
 
     start_row = conn.execute(
-        f"SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL {strat_filter} ORDER BY rowid ASC LIMIT 1",
-        (start_date, *strat_params),
+        f"SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid ASC LIMIT 1",
+        (resolved_start, *params),
     ).fetchone()
 
     end_row = conn.execute(
-        f"SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL {strat_filter} ORDER BY rowid DESC LIMIT 1",
-        (end_date, *strat_params),
+        f"SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid DESC LIMIT 1",
+        (resolved_end, *params),
     ).fetchone()
 
     if start_row is None or end_row is None:
         return {
             "total_pnl": None, "total_pnl_pct": None, "cagr": None,
             "spy_return": None, "alpha": None,
-            "start_date": start_date, "end_date": end_date, "total_trades": 0,
+            "start_date": resolved_start, "end_date": resolved_end, "total_trades": 0,
         }
 
     start_value = start_row["total_value"]
@@ -314,7 +330,7 @@ def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None 
     else:
         total_pnl = None
 
-    cagr = _compute_cagr(start_value, end_value, start_date, end_date)
+    cagr = _compute_cagr(start_value, end_value, resolved_start, resolved_end)
 
     win_rate = end_row["win_rate"] if "win_rate" in end_row.keys() else None
     closed_trades = end_row["closed_trades"] if "closed_trades" in end_row.keys() else None
@@ -325,8 +341,8 @@ def get_portfolio_performance(conn: sqlite3.Connection, strategy_id: str | None 
         "cagr": cagr,
         "spy_return": round(spy_return, 2) if spy_return is not None else None,
         "alpha": round(alpha, 2) if alpha is not None else None,
-        "start_date": start_date,
-        "end_date": end_date,
+        "start_date": resolved_start,
+        "end_date": resolved_end,
         "total_trades": total_trades,
         "win_rate": round(win_rate, 2) if win_rate is not None else None,
         "closed_trades": closed_trades,
