@@ -123,61 +123,76 @@ def get_api_costs(
 def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
     """Return total portfolio return from sim_portfolio_snapshots.
 
-    Sums across all strategies: total starting capital vs total current value.
+    Computes return per-strategy (each strategy's own start value vs current value)
+    then sums the dollar returns. This avoids inflating returns when strategies
+    start on different dates (new capital appearing as "gains").
     """
-    row = conn.execute(
+    rows = conn.execute(
         """
-        SELECT MIN(date) AS start_date, MAX(date) AS end_date
+        SELECT strategy_id,
+               MIN(date) AS start_date,
+               MAX(date) AS end_date
         FROM sim_portfolio_snapshots
         WHERE total_value IS NOT NULL
+        GROUP BY strategy_id
         """
-    ).fetchone()
+    ).fetchall()
 
-    if row is None or row["start_date"] is None:
+    if not rows:
         return None
 
-    start_date = row["start_date"]
-    end_date = row["end_date"]
+    total_start_value = 0.0
+    total_end_value = 0.0
+    earliest_date = None
+    latest_date = None
 
-    # Sum across all strategies on the start date
-    start_row = conn.execute(
-        "SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL",
-        (start_date,),
-    ).fetchone()
+    for row in rows:
+        sid = row["strategy_id"]
+        s_start = row["start_date"]
+        s_end = row["end_date"]
 
-    # Sum across all strategies on the end date
-    end_row = conn.execute(
-        "SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots WHERE date = ? AND total_value IS NOT NULL",
-        (end_date,),
-    ).fetchone()
+        start_row = conn.execute(
+            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            (s_start, sid),
+        ).fetchone()
 
-    if start_row is None or end_row is None:
+        end_row = conn.execute(
+            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            (s_end, sid),
+        ).fetchone()
+
+        if start_row is None or end_row is None:
+            continue
+
+        total_start_value += start_row["total_value"]
+        total_end_value += end_row["total_value"]
+
+        if earliest_date is None or s_start < earliest_date:
+            earliest_date = s_start
+        if latest_date is None or s_end > latest_date:
+            latest_date = s_end
+
+    if total_start_value <= 0 or earliest_date is None:
         return None
 
-    start_value = start_row["total_value"]
-    end_value = end_row["total_value"]
-
-    if start_value is None or end_value is None or start_value <= 0:
-        return None
-
-    total_return = round(end_value - start_value, 2)
-    total_return_pct = round(((end_value - start_value) / start_value) * 100, 2)
+    total_return = round(total_end_value - total_start_value, 2)
+    total_return_pct = round(((total_end_value - total_start_value) / total_start_value) * 100, 2)
 
     from datetime import date as date_type
     try:
-        d1 = date_type.fromisoformat(start_date)
-        d2 = date_type.fromisoformat(end_date)
+        d1 = date_type.fromisoformat(earliest_date)
+        d2 = date_type.fromisoformat(latest_date)
         days = (d2 - d1).days
         months_running = max(days / 30.44, 1)
     except (ValueError, TypeError):
         months_running = 1
 
     return {
-        "start_value": start_value,
-        "end_value": end_value,
+        "start_value": total_start_value,
+        "end_value": total_end_value,
         "total_return": total_return,
         "total_return_pct": total_return_pct,
-        "start_date": start_date,
-        "end_date": end_date,
+        "start_date": earliest_date,
+        "end_date": latest_date,
         "months_running": round(months_running, 1),
     }
