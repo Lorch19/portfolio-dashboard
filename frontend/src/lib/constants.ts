@@ -12,9 +12,9 @@ import {
 export const TABS = [
   { name: "Health", path: "/health", icon: Activity },
   { name: "Supervisor", path: "/supervisor", icon: Eye },
+  { name: "Performance", path: "/performance", icon: TrendingUp },
   { name: "Funnel", path: "/funnel", icon: Filter },
   { name: "Holdings", path: "/holdings", icon: Briefcase },
-  { name: "Performance", path: "/performance", icon: TrendingUp },
   { name: "Decisions", path: "/decisions", icon: Brain },
   { name: "Costs", path: "/costs", icon: DollarSign },
   { name: "Debug", path: "/debug", icon: Bug },

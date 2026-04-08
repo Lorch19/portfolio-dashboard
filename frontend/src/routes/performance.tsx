@@ -251,6 +251,30 @@ function StrategyComparisonTable({
                     <td className="px-3 py-1 text-right tabular-nums">{s.total_trades}</td>
                   </tr>
                 ))}
+                {/* SPY benchmark row */}
+                {(() => {
+                  const spyReturn = strategies.find((s) => s.spy_return_pct != null)?.spy_return_pct ?? null
+                  const earliest = strategies.reduce((min, s) => s.start_date < min ? s.start_date : min, strategies[0].start_date)
+                  return (
+                    <tr className="h-10 border-t-2 border-border bg-muted/30">
+                      <td className="px-3 py-1 font-medium text-muted-foreground">SPY (benchmark)</td>
+                      <td className="px-3 py-1 text-muted-foreground">{earliest}</td>
+                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
+                      <td className="px-3 py-1 text-right tabular-nums">
+                        <span className={cn(
+                          spyReturn != null && spyReturn > 0 && "text-success",
+                          spyReturn != null && spyReturn < 0 && "text-destructive"
+                        )}>
+                          {formatPct(spyReturn)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
+                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
+                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
+                      <td className="px-3 py-1 text-right text-muted-foreground">—</td>
+                    </tr>
+                  )
+                })()}
               </tbody>
             </table>
           </div>
