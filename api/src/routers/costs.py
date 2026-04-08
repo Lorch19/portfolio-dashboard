@@ -11,7 +11,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _query_costs(start_date: str | None = None, end_date: str | None = None) -> dict:
+def _query_costs(start_date: str | None = None, end_date: str | None = None, strategy_id: str | None = None) -> dict:
     """Query portfolio and supervisor DBs for cost data.
 
     Each section is independently wrapped so partial failures produce
@@ -51,7 +51,7 @@ def _query_costs(start_date: str | None = None, end_date: str | None = None) -> 
                     result["brokerage_error"] = str(exc)
 
                 try:
-                    portfolio_return = get_total_portfolio_return(conn)
+                    portfolio_return = get_total_portfolio_return(conn, strategy_id=strategy_id)
                     result["portfolio_return"] = portfolio_return
                     result["portfolio_return_error"] = None
                 except Exception as exc:
@@ -128,5 +128,6 @@ def _query_costs(start_date: str | None = None, end_date: str | None = None) -> 
 def costs(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    strategy_id: Optional[str] = Query(None),
 ):
-    return _query_costs(start_date=start_date, end_date=end_date)
+    return _query_costs(start_date=start_date, end_date=end_date, strategy_id=strategy_id)

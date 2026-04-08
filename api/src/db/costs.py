@@ -120,22 +120,31 @@ def get_api_costs(
     }
 
 
-def get_total_portfolio_return(conn: sqlite3.Connection) -> dict | None:
-    """Return total portfolio return from sim_portfolio_snapshots.
+def get_total_portfolio_return(
+    conn: sqlite3.Connection,
+    strategy_id: str | None = None,
+) -> dict | None:
+    """Return portfolio return from sim_portfolio_snapshots.
 
-    Computes return per-strategy (each strategy's own start value vs current value)
-    then sums the dollar returns. This avoids inflating returns when strategies
-    start on different dates (new capital appearing as "gains").
+    When strategy_id is provided, returns that single strategy's return.
+    Otherwise computes per-strategy and sums dollar returns.
     """
+    where = "total_value IS NOT NULL"
+    params: list[str] = []
+    if strategy_id:
+        where += " AND strategy_id = ?"
+        params.append(strategy_id)
+
     rows = conn.execute(
-        """
+        f"""
         SELECT strategy_id,
                MIN(date) AS start_date,
                MAX(date) AS end_date
         FROM sim_portfolio_snapshots
-        WHERE total_value IS NOT NULL
+        WHERE {where}
         GROUP BY strategy_id
-        """
+        """,
+        params,
     ).fetchall()
 
     if not rows:

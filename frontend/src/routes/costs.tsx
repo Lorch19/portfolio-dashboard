@@ -8,6 +8,7 @@ import {
   DollarSign,
 } from "lucide-react"
 import { useCosts } from "@/api/useCosts"
+import { useStrategies } from "@/api/useStrategies"
 import { ErrorCard } from "@/components/ErrorCard"
 import { ChartCard } from "@/components/ChartCard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -419,10 +420,15 @@ function VpsCostCard({
 function CostsPage() {
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [strategyId, setStrategyId] = useState("")
+  const { data: strategiesData } = useStrategies()
   const { data, isLoading, isError, error, refetch } = useCosts(
     startDate || undefined,
     endDate || undefined,
+    strategyId || undefined,
   )
+
+  const strategies = strategiesData?.strategies ?? []
 
   if (isLoading) return <CostsSkeleton />
   if (isError) {
@@ -442,6 +448,22 @@ function CostsPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Costs</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          {strategies.length > 1 && (
+            <select
+              value={strategyId}
+              onChange={(e) => setStrategyId(e.target.value)}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+              aria-label="Filter by strategy"
+            >
+              <option value="">All Strategies</option>
+              {strategies.map((s) => (
+                <option key={s.strategy_id} value={s.strategy_id}>
+                  {s.strategy_id} (since {s.start_date})
+                </option>
+              ))}
+            </select>
+          )}
         <DateRangePicker
           startDate={startDate}
           endDate={endDate}
@@ -452,6 +474,7 @@ function CostsPage() {
             setEndDate("")
           }}
         />
+        </div>
       </div>
 
       {data.message && (
