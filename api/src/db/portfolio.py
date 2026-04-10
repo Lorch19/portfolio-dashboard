@@ -310,102 +310,233 @@ def get_portfolio_risk_data(conn: sqlite3.Connection) -> dict[str, dict]:
     return {}
 
 
+def _count_trades(
+    conn: sqlite3.Connection,
+    strategy_id: str | None,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict:
+    """Count trades and win rate from sim_positions for the given filter.
+
+    Filters by entry_date when start/end provided. Uses open+closed for total,
+    and only closed trades with pnl_pct for win rate.
+    """
+    where = []
+    params: list = []
+    if strategy_id:
+        where.append("strategy_id = ?")
+        params.append(strategy_id)
+    if start_date:
+        where.append("entry_date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("entry_date <= ?")
+        params.append(end_date)
+    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    row = conn.execute(
+        f"""
+        SELECT
+            COUNT(*) AS total_trades,
+            SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_trades,
+            SUM(CASE WHEN status='closed' AND pnl_pct > 0 THEN 1 ELSE 0 END) AS winning_trades
+        FROM sim_positions
+        {where_clause}
+        """,
+        params,
+    ).fetchone()
+
+    total = row["total_trades"] or 0
+    closed = row["closed_trades"] or 0
+    winning = row["winning_trades"] or 0
+    win_rate = round((winning / closed) * 100, 2) if closed > 0 else None
+
+    return {"total_trades": total, "closed_trades": closed, "win_rate": win_rate}
+
+
 def get_portfolio_performance(
     conn: sqlite3.Connection,
     strategy_id: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    portfolio_db_path: str | None = None,
 ) -> dict:
     """Return portfolio performance summary.
 
-    Real schema: date, strategy_id, total_value, sp500_return_pct, alpha_pct,
-    total_pnl_pct, win_rate, total_trades, closed_trades.
+    Data sources by field:
+    - current value / positions: live from SimPortfolio.get_state() (matches Telegram)
+    - start date: MIN(entry_date) FROM sim_positions WHERE status='open' (matches Telegram)
+    - trade counts / win rate: live from sim_positions
+    - SPY return / alpha: yfinance for the effective [start, end] window
+    - historical start value (when date-filtered): snapshot nearest to start_date
+
+    Date filter semantics:
+    - No filter → "since inception": start = earliest open entry_date, end = today,
+      P&L = live_value − $100K (starting capital), SPY over same window.
+    - Filtered → historical window: start value from nearest snapshot, end from live
+      state if end_date >= today else from snapshot.
     """
-    where = ["total_value IS NOT NULL"]
-    params: list[str] = []
+    # Lazy import to avoid circular concerns
+    from src.db import live_state
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Determine strategy list for live aggregation
     if strategy_id:
-        where.append("strategy_id = ?")
-        params.append(strategy_id)
-    if start_date:
-        where.append("date >= ?")
-        params.append(start_date)
-    if end_date:
-        where.append("date <= ?")
-        params.append(end_date)
+        strategy_ids = [strategy_id]
+    else:
+        strategy_ids = live_state.get_active_strategy_ids(portfolio_db_path) if portfolio_db_path else []
 
-    where_clause = " AND ".join(where)
+    # --- Gather live state across selected strategies ---
+    live_total = 0.0
+    live_cost_basis = 0.0
+    earliest_entry: str | None = None
+    positions_count = 0
+    live_available = False
 
-    row = conn.execute(
-        f"""
-        SELECT MIN(date) AS start_date, MAX(date) AS end_date
-        FROM sim_portfolio_snapshots
-        WHERE {where_clause}
-        """,
-        params,
-    ).fetchone()
+    if portfolio_db_path and strategy_ids:
+        for sid in strategy_ids:
+            state = live_state.get_live_strategy_state(sid, portfolio_db_path)
+            if state is None:
+                continue
+            live_available = True
+            live_total += state["total_value"]
+            live_cost_basis += live_state.STARTING_CAPITAL
+            positions_count += state["positions_count"]
+            if state["entry_date"]:
+                if earliest_entry is None or state["entry_date"] < earliest_entry:
+                    earliest_entry = state["entry_date"]
 
-    if row is None or row["start_date"] is None:
+    # --- Resolve effective date window ---
+    is_filtered = bool(start_date or end_date)
+    resolved_start = start_date or earliest_entry
+    resolved_end = end_date or today
+
+    # If end_date is in the future or today, use live state for the end
+    use_live_for_end = (end_date is None) or (end_date >= today)
+
+    # --- Compute start_value and end_value ---
+    start_value: float | None = None
+    end_value: float | None = None
+
+    if is_filtered:
+        # Historical window — look up start value from snapshots
+        snap_where = ["total_value IS NOT NULL"]
+        snap_params: list = []
+        if strategy_id:
+            snap_where.append("strategy_id = ?")
+            snap_params.append(strategy_id)
+        if resolved_start:
+            snap_where.append("date >= ?")
+            snap_params.append(resolved_start)
+        snap_clause = " AND ".join(snap_where)
+
+        start_row = conn.execute(
+            f"""
+            SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots
+            WHERE date = (SELECT MIN(date) FROM sim_portfolio_snapshots WHERE {snap_clause})
+              AND {snap_clause}
+            """,
+            (*snap_params, *snap_params),
+        ).fetchone()
+        if start_row and start_row["total_value"] is not None:
+            start_value = float(start_row["total_value"])
+
+        if use_live_for_end and live_available:
+            end_value = live_total
+        else:
+            end_snap_where = ["total_value IS NOT NULL"]
+            end_snap_params: list = []
+            if strategy_id:
+                end_snap_where.append("strategy_id = ?")
+                end_snap_params.append(strategy_id)
+            if end_date:
+                end_snap_where.append("date <= ?")
+                end_snap_params.append(end_date)
+            end_snap_clause = " AND ".join(end_snap_where)
+            end_row = conn.execute(
+                f"""
+                SELECT SUM(total_value) AS total_value FROM sim_portfolio_snapshots
+                WHERE date = (SELECT MAX(date) FROM sim_portfolio_snapshots WHERE {end_snap_clause})
+                  AND {end_snap_clause}
+                """,
+                (*end_snap_params, *end_snap_params),
+            ).fetchone()
+            if end_row and end_row["total_value"] is not None:
+                end_value = float(end_row["total_value"])
+    else:
+        # Unfiltered — inception-to-now view. Use starting capital as baseline.
+        if live_available:
+            start_value = live_cost_basis
+            end_value = live_total
+
+    # --- Fallback: live state unavailable and no filter → read snapshots ---
+    if start_value is None or end_value is None:
+        # Minimal snapshot-based fallback so we degrade gracefully
+        where = ["total_value IS NOT NULL"]
+        params: list = []
+        if strategy_id:
+            where.append("strategy_id = ?")
+            params.append(strategy_id)
+        if resolved_start:
+            where.append("date >= ?")
+            params.append(resolved_start)
+        if resolved_end:
+            where.append("date <= ?")
+            params.append(resolved_end)
+        where_clause = " AND ".join(where)
+        row = conn.execute(
+            f"SELECT MIN(date) AS s, MAX(date) AS e FROM sim_portfolio_snapshots WHERE {where_clause}",
+            params,
+        ).fetchone()
+        if row and row["s"]:
+            resolved_start = resolved_start or row["s"]
+            resolved_end = resolved_end or row["e"]
+            sv = conn.execute(
+                f"SELECT SUM(total_value) AS v FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause}",
+                (row["s"], *params),
+            ).fetchone()
+            ev = conn.execute(
+                f"SELECT SUM(total_value) AS v FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause}",
+                (row["e"], *params),
+            ).fetchone()
+            if sv and sv["v"] is not None:
+                start_value = float(sv["v"])
+            if ev and ev["v"] is not None:
+                end_value = float(ev["v"])
+
+    if start_value is None or end_value is None or resolved_start is None:
         return {
             "total_pnl": None, "total_pnl_pct": None, "cagr": None,
             "spy_return": None, "alpha": None,
-            "start_date": None, "end_date": None, "total_trades": 0,
+            "start_date": resolved_start, "end_date": resolved_end,
+            "total_trades": 0, "win_rate": None, "closed_trades": None,
+            "positions_count": positions_count if positions_count else None,
         }
 
-    resolved_start = row["start_date"]
-    resolved_end = row["end_date"]
+    # --- Compute derived metrics ---
+    total_pnl = round(end_value - start_value, 2)
+    total_pnl_pct = round(((end_value - start_value) / start_value) * 100, 2) if start_value > 0 else None
 
-    start_row = conn.execute(
-        f"SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid ASC LIMIT 1",
-        (resolved_start, *params),
-    ).fetchone()
-
-    end_row = conn.execute(
-        f"SELECT total_value, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid DESC LIMIT 1",
-        (resolved_end, *params),
-    ).fetchone()
-
-    if start_row is None or end_row is None:
-        return {
-            "total_pnl": None, "total_pnl_pct": None, "cagr": None,
-            "spy_return": None, "alpha": None,
-            "start_date": resolved_start, "end_date": resolved_end, "total_trades": 0,
-        }
-
-    start_value = start_row["total_value"]
-    end_value = end_row["total_value"]
-
-    # Use direct columns if available
-    total_pnl_pct = end_row["total_pnl_pct"]
-    total_trades = end_row["total_trades"] or 0
-
-    # Compute SPY return from Yahoo Finance for the actual date range
     spy_return = get_spy_return_for_range(resolved_start, resolved_end)
     alpha = round(total_pnl_pct - spy_return, 2) if total_pnl_pct is not None and spy_return is not None else None
 
-    # Compute P&L from values
-    if start_value is not None and end_value is not None and start_value > 0:
-        total_pnl = round(end_value - start_value, 2)
-        if total_pnl_pct is None:
-            total_pnl_pct = round(((end_value - start_value) / start_value) * 100, 2)
-    else:
-        total_pnl = None
-
     cagr = _compute_cagr(start_value, end_value, resolved_start, resolved_end)
 
-    win_rate = end_row["win_rate"] if "win_rate" in end_row.keys() else None
-    closed_trades = end_row["closed_trades"] if "closed_trades" in end_row.keys() else None
+    trades = _count_trades(conn, strategy_id, start_date if is_filtered else None, end_date if is_filtered else None)
 
     return {
         "total_pnl": total_pnl,
-        "total_pnl_pct": round(total_pnl_pct, 2) if total_pnl_pct is not None else None,
+        "total_pnl_pct": total_pnl_pct,
         "cagr": cagr,
         "spy_return": round(spy_return, 2) if spy_return is not None else None,
-        "alpha": round(alpha, 2) if alpha is not None else None,
+        "alpha": alpha,
         "start_date": resolved_start,
         "end_date": resolved_end,
-        "total_trades": total_trades,
-        "win_rate": round(win_rate, 2) if win_rate is not None else None,
-        "closed_trades": closed_trades,
+        "total_trades": trades["total_trades"],
+        "closed_trades": trades["closed_trades"],
+        "win_rate": trades["win_rate"],
+        "positions_count": positions_count if positions_count else None,
     }
 
 
@@ -414,11 +545,16 @@ def get_portfolio_snapshots(
     strategy_id: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    portfolio_db_path: str | None = None,
 ) -> list[dict]:
     """Return time-series portfolio values for charting.
 
-    Real schema: date, total_value, sp500_return_pct (percentage, not SPY value).
+    When strategy_id is None, values are summed across all strategies per date
+    (aggregate portfolio curve). A synthetic "today" point is appended using
+    the live SimPortfolio value so the chart always extends to now.
     """
+    from src.db import live_state
+
     where = ["total_value IS NOT NULL"]
     params: list[str] = []
     if strategy_id:
@@ -431,31 +567,61 @@ def get_portfolio_snapshots(
         where.append("date <= ?")
         params.append(end_date)
 
+    # Aggregate: sum across strategies per date (matters when strategy_id is None)
     rows = conn.execute(
         f"""
-        SELECT date AS snapshot_date, total_value AS portfolio_value
+        SELECT date AS snapshot_date, SUM(total_value) AS portfolio_value
         FROM sim_portfolio_snapshots
         WHERE {' AND '.join(where)}
+        GROUP BY date
         ORDER BY date ASC
         """,
         params,
     ).fetchall()
 
-    if not rows:
+    series: list[dict] = [
+        {"snapshot_date": r["snapshot_date"], "portfolio_value": float(r["portfolio_value"])}
+        for r in rows
+    ]
+
+    # Append a synthetic "today" point using live state so the curve extends to now
+    today = datetime.now().strftime("%Y-%m-%d")
+    if portfolio_db_path and (end_date is None or end_date >= today):
+        if strategy_id:
+            state = live_state.get_live_strategy_state(strategy_id, portfolio_db_path)
+            live_value = state["total_value"] if state else None
+        else:
+            active_sids = live_state.get_active_strategy_ids(portfolio_db_path)
+            live_value = 0.0
+            for sid in active_sids:
+                s = live_state.get_live_strategy_state(sid, portfolio_db_path)
+                if s is not None:
+                    live_value += s["total_value"]
+            if not active_sids:
+                live_value = None
+
+        if live_value is not None and live_value > 0:
+            if series and series[-1]["snapshot_date"] == today:
+                # Replace today's snapshot with live value
+                series[-1]["portfolio_value"] = live_value
+            else:
+                series.append({"snapshot_date": today, "portfolio_value": live_value})
+
+    if not series:
         return []
 
-    # Fetch SPY prices for the date range to use as chart overlay
-    first_date = rows[0]["snapshot_date"]
-    last_date = rows[-1]["snapshot_date"]
+    # Fetch SPY prices across the series range for chart overlay
+    first_date = series[0]["snapshot_date"]
+    last_date = series[-1]["snapshot_date"]
     spy_prices = get_spy_prices_for_chart(first_date, last_date)
 
     return [
         {
-            "snapshot_date": row["snapshot_date"],
-            "portfolio_value": row["portfolio_value"],
-            "spy_value": spy_prices.get(row["snapshot_date"]),
+            "snapshot_date": p["snapshot_date"],
+            "portfolio_value": p["portfolio_value"],
+            "spy_value": spy_prices.get(p["snapshot_date"]),
         }
-        for row in rows
+        for p in series
     ]
 
 

@@ -1,11 +1,18 @@
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
 from src.config import settings
+from src.db import live_state
 from src.db.connection import get_db_connection
-from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots, get_spy_return_for_range
+from src.db.portfolio import (
+    _count_trades,
+    get_portfolio_performance,
+    get_portfolio_snapshots,
+    get_spy_return_for_range,
+)
 from src.db.supervisor import get_calibration_scores, get_prediction_accuracy
 
 router = APIRouter()
@@ -59,59 +66,100 @@ def _get_arena_comparison_from_portfolio(conn) -> list[dict]:
     return results
 
 
-def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
-    """Return per-strategy performance summary for multi-portfolio comparison."""
-    where = ["total_value IS NOT NULL"]
-    params: list[str] = []
-    if start_date:
-        where.append("date >= ?")
-        params.append(start_date)
-    if end_date:
-        where.append("date <= ?")
-        params.append(end_date)
-    where_clause = " AND ".join(where)
+def _get_strategy_comparison(
+    conn,
+    portfolio_db_path: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict]:
+    """Return per-strategy performance summary for multi-portfolio comparison.
 
-    rows = conn.execute(
-        f"""
-        SELECT strategy_id,
-               MIN(date) AS start_date,
-               MAX(date) AS end_date
-        FROM sim_portfolio_snapshots
-        WHERE {where_clause}
-        GROUP BY strategy_id
-        ORDER BY strategy_id
-        """,
-        params,
-    ).fetchall()
+    Uses live state (SimPortfolio.get_state) for current values and sim_positions
+    for entry dates. Falls back to snapshot table only if live state is unavailable.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    is_filtered = bool(start_date or end_date)
+
+    strategy_ids = live_state.get_active_strategy_ids(portfolio_db_path)
+    if not strategy_ids:
+        # Fall back to strategies seen in snapshots
+        snap_rows = conn.execute(
+            "SELECT DISTINCT strategy_id FROM sim_portfolio_snapshots ORDER BY strategy_id"
+        ).fetchall()
+        strategy_ids = [r["strategy_id"] for r in snap_rows]
 
     results = []
-    for row in rows:
-        sid = row["strategy_id"]
-        s_start = row["start_date"]
-        s_end = row["end_date"]
+    for sid in strategy_ids:
+        state = live_state.get_live_strategy_state(sid, portfolio_db_path)
 
-        start_row = conn.execute(
-            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
-            (s_start, sid),
-        ).fetchone()
+        if state is None:
+            # Live state unavailable — fall back to last snapshot
+            snap_end = conn.execute(
+                "SELECT date, total_value FROM sim_portfolio_snapshots "
+                "WHERE strategy_id = ? AND total_value IS NOT NULL "
+                "ORDER BY date DESC LIMIT 1",
+                (sid,),
+            ).fetchone()
+            if snap_end is None:
+                continue
+            end_val = float(snap_end["total_value"])
+            s_end = snap_end["date"]
+            s_start = None
+        else:
+            end_val = state["total_value"]
+            s_end = today
+            s_start = state["entry_date"]
 
-        end_row = conn.execute(
-            "SELECT total_value, total_pnl_pct, win_rate, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
-            (s_end, sid),
-        ).fetchone()
+        # Start date fallback: use snapshot earliest if no entry_date
+        if s_start is None:
+            snap_start = conn.execute(
+                "SELECT MIN(date) AS d FROM sim_portfolio_snapshots WHERE strategy_id = ?",
+                (sid,),
+            ).fetchone()
+            if snap_start and snap_start["d"]:
+                s_start = snap_start["d"]
+            else:
+                continue
 
-        if start_row is None or end_row is None:
-            continue
+        # Override with user filters
+        if start_date:
+            s_start = start_date
+        if end_date:
+            s_end = end_date
 
-        start_val = start_row["total_value"]
-        end_val = end_row["total_value"]
-        return_pct = end_row["total_pnl_pct"]
-        if return_pct is None and start_val and start_val > 0:
-            return_pct = round(((end_val - start_val) / start_val) * 100, 2)
+        # Start value: $100K baseline if using entry_date (matches Telegram); else snapshot
+        if not is_filtered:
+            start_val = live_state.STARTING_CAPITAL
+        else:
+            snap_start_val = conn.execute(
+                """
+                SELECT total_value FROM sim_portfolio_snapshots
+                WHERE strategy_id = ? AND date >= ? AND total_value IS NOT NULL
+                ORDER BY date ASC LIMIT 1
+                """,
+                (sid, s_start),
+            ).fetchone()
+            start_val = float(snap_start_val["total_value"]) if snap_start_val else live_state.STARTING_CAPITAL
 
-        # Compute SPY return from Yahoo Finance for the actual date range
+            # If end_date doesn't reach today, pull end from snapshot instead of live
+            if end_date and end_date < today:
+                snap_end_val = conn.execute(
+                    """
+                    SELECT total_value FROM sim_portfolio_snapshots
+                    WHERE strategy_id = ? AND date <= ? AND total_value IS NOT NULL
+                    ORDER BY date DESC LIMIT 1
+                    """,
+                    (sid, end_date),
+                ).fetchone()
+                if snap_end_val:
+                    end_val = float(snap_end_val["total_value"])
+
+        return_pct = round(((end_val - start_val) / start_val) * 100, 2) if start_val > 0 else None
+
         spy_return_pct = get_spy_return_for_range(s_start, s_end)
         alpha_pct = round(return_pct - spy_return_pct, 2) if return_pct is not None and spy_return_pct is not None else None
+
+        trades = _count_trades(conn, sid, start_date if is_filtered else None, end_date if is_filtered else None)
 
         results.append({
             "strategy_id": sid,
@@ -119,11 +167,12 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
             "end_date": s_end,
             "start_value": start_val,
             "latest_value": end_val,
-            "return_pct": round(return_pct, 2) if return_pct is not None else None,
+            "return_pct": return_pct,
             "spy_return_pct": spy_return_pct,
             "alpha_pct": alpha_pct,
-            "win_rate": round(end_row["win_rate"], 2) if end_row["win_rate"] is not None else None,
-            "total_trades": end_row["total_trades"] or 0,
+            "win_rate": trades["win_rate"],
+            "total_trades": trades["total_trades"],
+            "positions_count": state["positions_count"] if state else None,
         })
 
     return results
@@ -155,7 +204,13 @@ def _query_performance(
         if conn is not None:
             try:
                 try:
-                    result["portfolio_summary"] = get_portfolio_performance(conn, strategy_id=strategy_id, start_date=start_date, end_date=end_date)
+                    result["portfolio_summary"] = get_portfolio_performance(
+                        conn,
+                        strategy_id=strategy_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                        portfolio_db_path=portfolio_path,
+                    )
                     result["portfolio_summary_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio performance")
@@ -163,7 +218,13 @@ def _query_performance(
                     result["portfolio_summary_error"] = str(exc)
 
                 try:
-                    result["snapshots"] = get_portfolio_snapshots(conn, strategy_id=strategy_id, start_date=start_date, end_date=end_date)
+                    result["snapshots"] = get_portfolio_snapshots(
+                        conn,
+                        strategy_id=strategy_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                        portfolio_db_path=portfolio_path,
+                    )
                     result["snapshots_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying portfolio snapshots")
@@ -179,7 +240,12 @@ def _query_performance(
                     result["arena_comparison_error"] = str(exc)
 
                 try:
-                    result["strategy_comparison"] = _get_strategy_comparison(conn, start_date=start_date, end_date=end_date)
+                    result["strategy_comparison"] = _get_strategy_comparison(
+                        conn,
+                        portfolio_db_path=portfolio_path,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
                     result["strategy_comparison_error"] = None
                 except Exception as exc:
                     logger.exception("Error querying strategy comparison")
