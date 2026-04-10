@@ -1,9 +1,61 @@
+from __future__ import annotations
+
 import logging
 import math
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+
+# Cache SPY data for 1 hour (keyed by date range rounded to day)
+@lru_cache(maxsize=32)
+def _fetch_spy_prices(start_date: str, end_date: str) -> dict[str, float]:
+    """Fetch SPY daily close prices for a date range from Yahoo Finance.
+
+    Returns dict mapping date string (YYYY-MM-DD) to close price.
+    """
+    try:
+        # Add buffer day before start for computing return from start
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=5)
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        ticker = yf.Ticker("SPY")
+        hist = ticker.history(start=start_dt.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
+        if hist.empty:
+            return {}
+        return {idx.strftime("%Y-%m-%d"): float(row["Close"]) for idx, row in hist.iterrows()}
+    except Exception as exc:
+        logger.warning("Failed to fetch SPY prices: %s", exc)
+        return {}
+
+
+def get_spy_return_for_range(start_date: str, end_date: str) -> float | None:
+    """Compute SPY total return % between two dates."""
+    prices = _fetch_spy_prices(start_date, end_date)
+    if not prices:
+        return None
+    sorted_dates = sorted(prices.keys())
+    # Find the closest date <= start_date
+    start_price = None
+    for d in sorted_dates:
+        if d <= start_date:
+            start_price = prices[d]
+    # Find the closest date <= end_date
+    end_price = None
+    for d in sorted_dates:
+        if d <= end_date:
+            end_price = prices[d]
+    if start_price is None or end_price is None or start_price <= 0:
+        return None
+    return round(((end_price - start_price) / start_price) * 100, 2)
+
+
+def get_spy_prices_for_chart(start_date: str, end_date: str) -> dict[str, float]:
+    """Return SPY close prices keyed by date for chart overlay."""
+    return _fetch_spy_prices(start_date, end_date)
 
 
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
@@ -308,7 +360,7 @@ def get_portfolio_performance(
     ).fetchone()
 
     end_row = conn.execute(
-        f"SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid DESC LIMIT 1",
+        f"SELECT total_value, total_pnl_pct, total_trades, win_rate, closed_trades FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause} ORDER BY rowid DESC LIMIT 1",
         (resolved_end, *params),
     ).fetchone()
 
@@ -324,9 +376,11 @@ def get_portfolio_performance(
 
     # Use direct columns if available
     total_pnl_pct = end_row["total_pnl_pct"]
-    spy_return = end_row["sp500_return_pct"]
-    alpha = end_row["alpha_pct"]
     total_trades = end_row["total_trades"] or 0
+
+    # Compute SPY return from Yahoo Finance for the actual date range
+    spy_return = get_spy_return_for_range(resolved_start, resolved_end)
+    alpha = round(total_pnl_pct - spy_return, 2) if total_pnl_pct is not None and spy_return is not None else None
 
     # Compute P&L from values
     if start_value is not None and end_value is not None and start_value > 0:
@@ -379,7 +433,7 @@ def get_portfolio_snapshots(
 
     rows = conn.execute(
         f"""
-        SELECT date AS snapshot_date, total_value AS portfolio_value, sp500_return_pct AS spy_value
+        SELECT date AS snapshot_date, total_value AS portfolio_value
         FROM sim_portfolio_snapshots
         WHERE {' AND '.join(where)}
         ORDER BY date ASC
@@ -387,11 +441,19 @@ def get_portfolio_snapshots(
         params,
     ).fetchall()
 
+    if not rows:
+        return []
+
+    # Fetch SPY prices for the date range to use as chart overlay
+    first_date = rows[0]["snapshot_date"]
+    last_date = rows[-1]["snapshot_date"]
+    spy_prices = get_spy_prices_for_chart(first_date, last_date)
+
     return [
         {
             "snapshot_date": row["snapshot_date"],
             "portfolio_value": row["portfolio_value"],
-            "spy_value": row["spy_value"],
+            "spy_value": spy_prices.get(row["snapshot_date"]),
         }
         for row in rows
     ]

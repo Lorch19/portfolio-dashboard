@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query
 
 from src.config import settings
 from src.db.connection import get_db_connection
-from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots
+from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots, get_spy_return_for_range
 from src.db.supervisor import get_calibration_scores, get_prediction_accuracy
 
 router = APIRouter()
@@ -91,12 +91,12 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
         s_end = row["end_date"]
 
         start_row = conn.execute(
-            "SELECT total_value, sp500_return_pct FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            "SELECT total_value FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
             (s_start, sid),
         ).fetchone()
 
         end_row = conn.execute(
-            "SELECT total_value, sp500_return_pct, alpha_pct, total_pnl_pct, win_rate, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
+            "SELECT total_value, total_pnl_pct, win_rate, total_trades FROM sim_portfolio_snapshots WHERE date = ? AND strategy_id = ? AND total_value IS NOT NULL LIMIT 1",
             (s_end, sid),
         ).fetchone()
 
@@ -109,16 +109,8 @@ def _get_strategy_comparison(conn, start_date: str | None = None, end_date: str 
         if return_pct is None and start_val and start_val > 0:
             return_pct = round(((end_val - start_val) / start_val) * 100, 2)
 
-        # Compute SPY return for the filtered range (delta of cumulative values)
-        end_spy = end_row["sp500_return_pct"]
-        start_spy = start_row["sp500_return_pct"]
-        if end_spy is not None and start_spy is not None:
-            spy_return_pct = round(end_spy - start_spy, 2)
-        elif end_spy is not None:
-            spy_return_pct = round(end_spy, 2)
-        else:
-            spy_return_pct = None
-
+        # Compute SPY return from Yahoo Finance for the actual date range
+        spy_return_pct = get_spy_return_for_range(s_start, s_end)
         alpha_pct = round(return_pct - spy_return_pct, 2) if return_pct is not None and spy_return_pct is not None else None
 
         results.append({
