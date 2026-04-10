@@ -584,25 +584,46 @@ def get_portfolio_snapshots(
         for r in rows
     ]
 
-    # Append a synthetic "today" point using live state so the curve extends to now
     today = datetime.now().strftime("%Y-%m-%d")
-    if portfolio_db_path and (end_date is None or end_date >= today):
-        if strategy_id:
-            state = live_state.get_live_strategy_state(strategy_id, portfolio_db_path)
-            live_value = state["total_value"] if state else None
-        else:
-            active_sids = live_state.get_active_strategy_ids(portfolio_db_path)
-            live_value = 0.0
-            for sid in active_sids:
-                s = live_state.get_live_strategy_state(sid, portfolio_db_path)
-                if s is not None:
-                    live_value += s["total_value"]
-            if not active_sids:
-                live_value = None
+
+    # Determine active strategies for live state + anchor lookup
+    active_sids: list[str] = []
+    if portfolio_db_path:
+        active_sids = [strategy_id] if strategy_id else live_state.get_active_strategy_ids(portfolio_db_path)
+
+    # Prepend a synthetic "start" anchor at $100K on each strategy's entry_date
+    # so the chart baseline matches the KPI's inception-based P&L.
+    # Only when no user date filter is applied.
+    if portfolio_db_path and active_sids and not start_date:
+        earliest_entry: str | None = None
+        cost_basis = 0.0
+        for sid in active_sids:
+            s = live_state.get_live_strategy_state(sid, portfolio_db_path)
+            if s is None:
+                continue
+            cost_basis += live_state.STARTING_CAPITAL
+            if s.get("entry_date"):
+                if earliest_entry is None or s["entry_date"] < earliest_entry:
+                    earliest_entry = s["entry_date"]
+        if earliest_entry and cost_basis > 0:
+            # Only prepend if the earliest entry is before the first snapshot
+            if not series or earliest_entry < series[0]["snapshot_date"]:
+                series.insert(0, {"snapshot_date": earliest_entry, "portfolio_value": cost_basis})
+
+    # Append a synthetic "today" point using live state so the curve extends to now
+    if portfolio_db_path and active_sids and (end_date is None or end_date >= today):
+        live_value: float | None = 0.0
+        have_any = False
+        for sid in active_sids:
+            s = live_state.get_live_strategy_state(sid, portfolio_db_path)
+            if s is not None:
+                live_value += s["total_value"]
+                have_any = True
+        if not have_any:
+            live_value = None
 
         if live_value is not None and live_value > 0:
             if series and series[-1]["snapshot_date"] == today:
-                # Replace today's snapshot with live value
                 series[-1]["portfolio_value"] = live_value
             else:
                 series.append({"snapshot_date": today, "portfolio_value": live_value})
