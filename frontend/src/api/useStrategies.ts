@@ -6,6 +6,7 @@ export function useStrategies() {
   return useQuery({
     queryKey: ["strategies"],
     queryFn: () => apiClient<StrategiesResponse>("/api/strategies"),
-    staleTime: 300_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   })
 }

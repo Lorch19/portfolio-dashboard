@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Line,
   XAxis,
@@ -20,6 +21,7 @@ import {
   AlertTriangle,
   Target,
   Users,
+  RefreshCw,
 } from "lucide-react"
 import { usePerformance } from "@/api/usePerformance"
 import { useStrategies } from "@/api/useStrategies"
@@ -774,10 +776,14 @@ function PnlChart({ snapshots }: { snapshots: Snapshot[] }) {
 
 // --- Performance Page ---
 
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+
 function PerformancePage() {
   const [strategyId, setStrategyId] = useState<string>("")
   const [startDate, setStartDate] = useState<string>("")
   const [endDate, setEndDate] = useState<string>("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const queryClient = useQueryClient()
   const { data: strategiesData } = useStrategies()
   const { data, isLoading, isError, error, refetch } = usePerformance(
     strategyId || undefined,
@@ -788,6 +794,18 @@ function PerformancePage() {
   const navigate = Route.useNavigate()
 
   const strategies = strategiesData?.strategies ?? []
+
+  async function forceRefresh() {
+    setIsRefreshing(true)
+    try {
+      await fetch(`${BASE_URL}/api/cache/clear`, { method: "POST" })
+    } catch {
+      // cache clear is best-effort; still invalidate frontend
+    } finally {
+      await queryClient.invalidateQueries()
+      setIsRefreshing(false)
+    }
+  }
 
   if (isLoading) return <PerformanceSkeleton />
   if (isError) {
@@ -833,6 +851,16 @@ function PerformancePage() {
             onEndChange={setEndDate}
             onClear={() => { setStartDate(""); setEndDate("") }}
           />
+
+          <button
+            onClick={forceRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground hover:bg-accent disabled:opacity-50"
+            title="Clear all caches and refetch"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+            {isRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </div>
 

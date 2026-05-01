@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter
 
 from src.config import settings
+from src.db import live_state as _live_state
 from src.db.connection import get_db_connection
 
 router = APIRouter()
@@ -58,3 +59,10 @@ def strategies():
         return {"strategies": [], "error": str(exc)}
     finally:
         conn.close()
+
+
+@router.post("/api/cache/clear")
+def clear_cache():
+    """Flush the live-state batch cache. Call after any strategy/variant change."""
+    _live_state._batch_cache.clear()
+    return {"cleared": True}

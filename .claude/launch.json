@@ -18,7 +18,7 @@
       "port": 8001,
       "cwd": "api",
       "env": {
-        "PORTFOLIO_DB_PATH": "/Users/omrilorch/portfolio-system/data/portfolio.db",
+        "PORTFOLIO_DB_PATH": "/Users/omrilorch/portfolio-system/data/portfolio_vps_sync.db",
         "SUPERVISOR_DB_PATH": "/Users/omrilorch/portfolio-system/michael-supervisor/michael_supervisor.db"
       }
     }

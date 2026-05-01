@@ -110,16 +110,21 @@ def _get_strategy_comparison(
             s_end = today
             s_start = state["entry_date"]
 
-        # Start date fallback: use snapshot earliest if no entry_date
+        # Strategy start date = earliest of first position entry and first snapshot.
+        # First snapshot is the strategy launch date (before any trades are placed),
+        # so it can be one day earlier than the first position entry_date.
+        snap_start = conn.execute(
+            "SELECT MIN(date) AS d FROM sim_portfolio_snapshots WHERE strategy_id = ?",
+            (sid,),
+        ).fetchone()
+        snap_date = snap_start["d"] if snap_start and snap_start["d"] else None
         if s_start is None:
-            snap_start = conn.execute(
-                "SELECT MIN(date) AS d FROM sim_portfolio_snapshots WHERE strategy_id = ?",
-                (sid,),
-            ).fetchone()
-            if snap_start and snap_start["d"]:
-                s_start = snap_start["d"]
+            if snap_date:
+                s_start = snap_date
             else:
                 continue
+        elif snap_date and snap_date < s_start:
+            s_start = snap_date
 
         # Override with user filters
         if start_date:
