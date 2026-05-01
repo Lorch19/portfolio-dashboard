@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8001"
 
 export async function apiClient<T>(path: string, params?: Record<string, string>): Promise<T> {
   let url = `${BASE_URL}${path}`

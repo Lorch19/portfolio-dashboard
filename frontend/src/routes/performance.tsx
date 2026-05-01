@@ -776,7 +776,7 @@ function PnlChart({ snapshots }: { snapshots: Snapshot[] }) {
 
 // --- Performance Page ---
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8001"
 
 function PerformancePage() {
   const [strategyId, setStrategyId] = useState<string>("")
