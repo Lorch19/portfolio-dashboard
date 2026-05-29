@@ -80,6 +80,9 @@ def _get_strategy_comparison(
     today = datetime.now().strftime("%Y-%m-%d")
     is_filtered = bool(start_date or end_date)
 
+    from src.routers.strategies import _enabled_strategy_ids
+    enabled = _enabled_strategy_ids()
+
     strategy_ids = live_state.get_active_strategy_ids(portfolio_db_path)
     if not strategy_ids:
         # Fall back to strategies seen in snapshots
@@ -87,6 +90,9 @@ def _get_strategy_comparison(
             "SELECT DISTINCT strategy_id FROM sim_portfolio_snapshots ORDER BY strategy_id"
         ).fetchall()
         strategy_ids = [r["strategy_id"] for r in snap_rows]
+
+    if enabled is not None:
+        strategy_ids = [sid for sid in strategy_ids if sid in enabled]
 
     results = []
     for sid in strategy_ids:
