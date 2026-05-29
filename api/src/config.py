@@ -6,6 +6,7 @@ _PORTFOLIO_SYSTEM = _HOME / "portfolio-system"
 
 _DEFAULT_PORTFOLIO_DB = str(_PORTFOLIO_SYSTEM / "data" / "portfolio_vps_sync.db")
 _DEFAULT_SUPERVISOR_DB = str(_PORTFOLIO_SYSTEM / "michael-supervisor" / "michael_supervisor.db")
+_DEFAULT_VARIANTS_CONFIG = str(_PORTFOLIO_SYSTEM / "config" / "variants.json")
 
 
 class Settings:
@@ -18,6 +19,7 @@ class Settings:
         self.portfolio_db_path: str = os.getenv("PORTFOLIO_DB_PATH", _DEFAULT_PORTFOLIO_DB)
         self.supervisor_db_path: str = os.getenv("SUPERVISOR_DB_PATH", _DEFAULT_SUPERVISOR_DB)
         self.log_dir: str = os.getenv("LOG_DIR", "")
+        self.variants_config_path: str = os.getenv("VARIANTS_CONFIG_PATH", _DEFAULT_VARIANTS_CONFIG)
 
 
 settings = Settings()

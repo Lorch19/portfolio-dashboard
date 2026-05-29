@@ -1,4 +1,6 @@
+import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter
 
@@ -8,6 +10,21 @@ from src.db.connection import get_db_connection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _enabled_strategy_ids() -> set[str] | None:
+    """Return the set of enabled strategy IDs from variants.json, or None if unavailable."""
+    path = Path(settings.variants_config_path)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        enabled = {k for k, v in data.get("variants", {}).items() if v.get("enabled")}
+        enabled.add("live")
+        return enabled
+    except Exception:
+        logger.warning("Could not read variants config at %s", path)
+        return None
 
 
 @router.get("/api/strategies")
@@ -43,6 +60,7 @@ def strategies():
             """
         ).fetchall()
 
+        enabled = _enabled_strategy_ids()
         return {
             "strategies": [
                 {
@@ -55,6 +73,7 @@ def strategies():
                     "open_positions": row["open_positions"],
                 }
                 for row in rows
+                if enabled is None or row["strategy_id"] in enabled
             ],
             "error": None,
         }
