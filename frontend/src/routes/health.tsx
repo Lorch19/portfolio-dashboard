@@ -3,6 +3,7 @@ import { useHealth } from "@/api/useHealth"
 import { ErrorCard } from "@/components/ErrorCard"
 import { KpiCard, KpiCardSkeleton } from "@/components/KpiCard"
 import { AgentStatusCard } from "@/components/AgentStatusCard"
+import { DbFreshnessCard } from "@/components/DbFreshnessCard"
 import { AlertsList } from "@/components/AlertsList"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -43,7 +44,8 @@ function HealthPage() {
   const allHealthy =
     data?.agents != null &&
     data.agents.length > 0 &&
-    data.agents.every((a) => a.status === "healthy")
+    data.agents.every((a) => a.status === "healthy") &&
+    (data.db_freshness ?? []).every((db) => db.status === "healthy")
 
   return (
     <div
@@ -76,6 +78,20 @@ function HealthPage() {
               value={safePercent(data.vps_metrics.disk_percent)}
               trend={metricTrend(data.vps_metrics.disk_percent)}
             />
+          </div>
+        </section>
+      ) : null}
+
+      {/* DB Freshness Cards */}
+      {data?.db_freshness && data.db_freshness.length > 0 ? (
+        <section aria-label="Database Freshness">
+          <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+            Data Freshness
+          </h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {data.db_freshness.map((db) => (
+              <DbFreshnessCard key={db.name} db={db} />
+            ))}
           </div>
         </section>
       ) : null}

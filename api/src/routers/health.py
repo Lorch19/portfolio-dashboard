@@ -1,14 +1,43 @@
 import logging
+import os
+import time
 
 import psutil
 from fastapi import APIRouter
 
 from src.db.connection import get_db_connection
-from src.config import settings
+from src.config import DB_STALENESS_MULTIPLIER, DB_SYNC_INTERVALS_SEC, settings
 from src.db.supervisor import get_agent_statuses, get_heartbeat_status, get_recent_alerts
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _check_db_freshness() -> list[dict]:
+    """Report each configured DB's age against its expected launchd sync interval.
+
+    Catches the failure mode where a DB path is misconfigured (e.g. pointed at a
+    stale local file instead of the synced copy) or the sync agent silently stops
+    working — both look fine from the app's perspective otherwise, since a stale
+    SQLite file still opens and queries without error.
+    """
+    dbs = {
+        "portfolio_db": settings.portfolio_db_path,
+        "supervisor_db": settings.supervisor_db_path,
+    }
+    results = []
+    for name, path in dbs.items():
+        max_age = DB_SYNC_INTERVALS_SEC.get(name, 1800) * DB_STALENESS_MULTIPLIER
+        entry = {"name": name, "path": path, "max_age_seconds": max_age}
+        if not path or not os.path.exists(path):
+            entry["status"] = "missing"
+            entry["age_seconds"] = None
+        else:
+            age = time.time() - os.path.getmtime(path)
+            entry["age_seconds"] = round(age, 1)
+            entry["status"] = "stale" if age > max_age else "healthy"
+        results.append(entry)
+    return results
 
 
 def _collect_vps_metrics() -> tuple[dict | None, str | None]:
@@ -59,6 +88,7 @@ def health():
         "alerts_error": db_error,
         "vps_metrics": vps_metrics,
         "vps_metrics_error": vps_error,
+        "db_freshness": _check_db_freshness(),
     }
 
     return result

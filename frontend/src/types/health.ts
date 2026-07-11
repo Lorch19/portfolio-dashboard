@@ -25,6 +25,14 @@ export interface AlertEvent {
   created_at: string
 }
 
+export interface DbFreshness {
+  name: string
+  path: string
+  status: "healthy" | "stale" | "missing"
+  age_seconds: number | null
+  max_age_seconds: number
+}
+
 export interface HealthResponse {
   agents: AgentStatus[] | null
   agents_error: string | null
@@ -34,4 +42,5 @@ export interface HealthResponse {
   alerts_error: string | null
   vps_metrics: VpsMetrics | null
   vps_metrics_error: string | null
+  db_freshness: DbFreshness[] | null
 }

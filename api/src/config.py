@@ -24,6 +24,16 @@ class Settings:
 
 settings = Settings()
 
+# Expected launchd sync cadence for each DB (see com.portfolio.*-db-sync.plist
+# StartInterval). Freshness check flags a DB as stale once its mtime exceeds
+# its own interval by this multiplier, giving slack for the occasional
+# scp timeout/retry without alerting on every hiccup.
+DB_SYNC_INTERVALS_SEC: dict[str, int] = {
+    "portfolio_db": 1800,
+    "supervisor_db": 300,
+}
+DB_STALENESS_MULTIPLIER: float = 3.0
+
 # Static mapping of pipeline components to their Strangler Fig migration state.
 # v1-cron: component runs via legacy cron schedule
 # v2-supervisor: component runs under the v2 supervisor daemon
