@@ -24,15 +24,20 @@ class Settings:
 
 settings = Settings()
 
-# Expected launchd sync cadence for each DB (see com.portfolio.*-db-sync.plist
-# StartInterval). Freshness check flags a DB as stale once its mtime exceeds
-# its own interval by this multiplier, giving slack for the occasional
-# scp timeout/retry without alerting on every hiccup.
-DB_SYNC_INTERVALS_SEC: dict[str, int] = {
-    "portfolio_db": 1800,
-    "supervisor_db": 300,
+# Max age (seconds) before /api/health flags a DB as stale. Defaults assume the
+# local-Mac deployment, where these are launchd-synced copies (see
+# com.portfolio.*-db-sync.plist StartInterval) refreshed every 5-30 min, with a
+# 3x multiplier for the occasional scp timeout/retry.
+#
+# On the VPS these are the LIVE originals, not synced copies, so the right
+# threshold is write cadence, not sync cadence: portfolio_db is written once
+# per MWF pipeline run (gaps of ~3 days over a weekend are normal), and
+# supervisor_db is written by the always-on supervisor daemon every ~5 min.
+# Override per-deployment via env vars rather than editing these defaults.
+DB_FRESHNESS_MAX_AGE_SEC: dict[str, int] = {
+    "portfolio_db": int(os.getenv("DB_FRESHNESS_MAX_AGE_PORTFOLIO_SEC", 1800 * 3)),
+    "supervisor_db": int(os.getenv("DB_FRESHNESS_MAX_AGE_SUPERVISOR_SEC", 300 * 3)),
 }
-DB_STALENESS_MULTIPLIER: float = 3.0
 
 # Static mapping of pipeline components to their Strangler Fig migration state.
 # v1-cron: component runs via legacy cron schedule

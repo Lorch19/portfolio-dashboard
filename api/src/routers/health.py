@@ -6,15 +6,28 @@ import psutil
 from fastapi import APIRouter
 
 from src.db.connection import get_db_connection
-from src.config import DB_STALENESS_MULTIPLIER, DB_SYNC_INTERVALS_SEC, settings
+from src.config import DB_FRESHNESS_MAX_AGE_SEC, settings
 from src.db.supervisor import get_agent_statuses, get_heartbeat_status, get_recent_alerts
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _last_write_mtime(path: str) -> float:
+    """Newest mtime among a SQLite file and its WAL sidecar.
+
+    In WAL journal mode (used by both portfolio.db and michael_supervisor.db),
+    recent writes land in a `-wal` file and the main file's mtime only advances
+    on checkpoint — checking the main file alone can report a DB as stale while
+    it's being actively written.
+    """
+    candidates = [path, f"{path}-wal"]
+    mtimes = [os.path.getmtime(p) for p in candidates if os.path.exists(p)]
+    return max(mtimes)
+
+
 def _check_db_freshness() -> list[dict]:
-    """Report each configured DB's age against its expected launchd sync interval.
+    """Report each configured DB's age against its expected write/sync cadence.
 
     Catches the failure mode where a DB path is misconfigured (e.g. pointed at a
     stale local file instead of the synced copy) or the sync agent silently stops
@@ -27,13 +40,13 @@ def _check_db_freshness() -> list[dict]:
     }
     results = []
     for name, path in dbs.items():
-        max_age = DB_SYNC_INTERVALS_SEC.get(name, 1800) * DB_STALENESS_MULTIPLIER
+        max_age = DB_FRESHNESS_MAX_AGE_SEC.get(name, 1800)
         entry = {"name": name, "path": path, "max_age_seconds": max_age}
         if not path or not os.path.exists(path):
             entry["status"] = "missing"
             entry["age_seconds"] = None
         else:
-            age = time.time() - os.path.getmtime(path)
+            age = time.time() - _last_write_mtime(path)
             entry["age_seconds"] = round(age, 1)
             entry["status"] = "stale" if age > max_age else "healthy"
         results.append(entry)
