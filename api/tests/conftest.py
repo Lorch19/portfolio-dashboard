@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS sim_positions (
     target_2 REAL,
     conviction INTEGER,
     sleeve TEXT,
+    strategy_id TEXT DEFAULT 'live',
     status TEXT DEFAULT 'open',
     peak_price REAL,
     exit_price REAL,
