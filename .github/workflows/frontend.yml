@@ -1,6 +1,12 @@
 name: Frontend CI
 
 on:
+  # Manual trigger. The path filters below mean this workflow only runs when
+  # frontend/** changes -- so a change to this file, or to the test step it
+  # runs, cannot prove itself. Its last automatic run was 2026-07-11; the
+  # `pnpm test` step added in e333194 had never executed on a runner until
+  # this was added.
+  workflow_dispatch:
   push:
     paths:
       - 'frontend/**'
