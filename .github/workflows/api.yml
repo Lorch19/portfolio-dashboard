@@ -24,24 +24,16 @@ jobs:
 
       - run: uv sync
 
-      # NOT a placeholder -- 11 test files, 166 tests currently pass.
-      # Still disabled because tests/test_performance.py cannot pass in CI:
+      # Enabled 2026-08-22. This step was disabled because
+      # tests/test_performance.py was red (6 failures) and, worse, hit the
+      # network: it called yfinance unmocked and derived assertions from
+      # datetime.now(), so it returned different values every day.
       #
-      #   6 failing as of 2026-08-21. They encode the pre-9ca97e3 design,
-      #   where trade counts, end_date and SPY came from sim_portfolio_snapshots.
-      #   9ca97e3 made live SimPortfolio + yfinance the source of truth, so:
-      #     - total_trades  now counts sim_positions (5), test expects 6
-      #     - end_date      now resolves to today,     test expects 2026-04-04
-      #     - spy_value     now a live yfinance fetch, test expects the fixture column
-      #
-      #   Worse than stale: these tests hit the network (yfinance, unmocked --
-      #   test_performance.py patches only DB paths) and two assertions are
-      #   date-relative, so they return different values every day. Enabling
-      #   this now would ship a gate that is both red AND permanently flaky.
-      #
-      # To enable: mock yfinance, freeze "today", update the 6 expectations to
-      # the post-9ca97e3 behaviour, confirm `uv run pytest` is 172/172, then
-      # uncomment. Do not enable by deselecting test_performance.py.
-      #
-      # - run: uv run pytest
-      #   name: Run tests
+      # Both nondeterministic inputs are now pinned at their single seam
+      # (src.db.portfolio._fetch_spy_prices and .datetime), and the six
+      # expectations were updated to the post-9ca97e3 semantics -- trade counts
+      # read live from sim_positions, end_date resolves to today, spy_value is
+      # a close price rather than the snapshot's stored return column.
+      # Nothing was deselected or skipped to get here: 173 passed, 0 failed.
+      - run: uv run pytest
+        name: Run tests (11 files, 173 tests)

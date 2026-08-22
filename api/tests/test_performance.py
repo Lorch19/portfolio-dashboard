@@ -1,12 +1,58 @@
 """Tests for GET /api/performance endpoint and performance query functions."""
 
 import sqlite3
+from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.db.portfolio import get_portfolio_performance, get_portfolio_snapshots
 from src.db.supervisor import get_calibration_scores, get_prediction_accuracy
 from src.routers.performance import _get_arena_comparison_from_portfolio
+
+
+# ---------------------------------------------------------------------------
+# Determinism
+#
+# These tests have two nondeterministic inputs, and both used to reach the real
+# world: get_portfolio_performance calls yfinance for SPY (via _fetch_spy_prices)
+# and derives its end date from datetime.now(). That made the assertions below
+# return different values every day and require the network, which is why this
+# module could not be enabled in CI. Pin both at the single seam each uses.
+#
+# FROZEN_TODAY is deliberately after the last snapshot (2026-04-04) so the
+# fallback window resolves the same way it does in production when live state
+# is unavailable.
+# ---------------------------------------------------------------------------
+
+FROZEN_TODAY = "2026-04-10"
+
+# SPY closes on the fixture's snapshot dates, plus FROZEN_TODAY. Chosen so the
+# expected numbers below are hand-computable rather than copied from output:
+#   spy_return over [2026-01-15, 2026-04-10] = (555 - 500) / 500 * 100 = 11.0
+SPY_PRICES = {
+    "2026-01-15": 500.0,
+    "2026-02-15": 520.0,
+    "2026-03-15": 540.0,
+    "2026-04-04": 550.0,
+    "2026-04-10": 555.0,
+}
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):  # noqa: ARG003 - signature must match datetime.now
+        return datetime.fromisoformat(FROZEN_TODAY)
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_performance(monkeypatch):
+    """Remove the network call and the moving 'today' from every test here."""
+    monkeypatch.setattr("src.db.portfolio.datetime", _FrozenDatetime)
+    monkeypatch.setattr(
+        "src.db.portfolio._fetch_spy_prices",
+        lambda start_date, end_date: dict(SPY_PRICES),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +68,11 @@ class TestGetPortfolioPerformance:
         conn.close()
 
         assert result["start_date"] == "2026-01-15"
-        assert result["end_date"] == "2026-04-04"
+        # end_date is "now", not the last snapshot date. Since 9ca97e3 the
+        # window runs to today; with live state unavailable (no
+        # portfolio_db_path here) the VALUES still come from the last snapshot
+        # on or before it. See test_fallback_window_is_wider_than_its_values.
+        assert result["end_date"] == FROZEN_TODAY
         # P&L: 112500 - 100000 = 12500
         assert result["total_pnl"] == 12500.00
         # P&L %: (12500 / 100000) * 100 = 12.5
@@ -36,11 +86,12 @@ class TestGetPortfolioPerformance:
         result = get_portfolio_performance(conn)
         conn.close()
 
-        # sp500_return_pct from latest snapshot = 8.33
-        assert result["spy_return"] == 8.33
-        # alpha_pct from latest snapshot = 4.17
+        # Since 9ca97e3 SPY comes from the price series, not the snapshot's
+        # stored sp500_return_pct column: (555 - 500) / 500 * 100 = 11.0
+        assert result["spy_return"] == 11.0
+        # alpha = portfolio return - SPY return = 12.5 - 11.0
         assert result["alpha"] is not None
-        assert result["alpha"] == 4.17
+        assert result["alpha"] == 1.5
 
     def test_returns_total_trades(self, performance_portfolio_db_path: str):
         conn = sqlite3.connect(performance_portfolio_db_path)
@@ -48,8 +99,41 @@ class TestGetPortfolioPerformance:
         result = get_portfolio_performance(conn)
         conn.close()
 
-        # total_trades from latest snapshot row (sim_portfolio_snapshots)
-        assert result["total_trades"] == 6
+        # Since 9ca97e3 trade counts are read live from sim_positions, not from
+        # the snapshot's stored total_trades column (which says 6). The fixture
+        # has 5 positions: sp1-sp4 open, sp5 closed.
+        assert result["total_trades"] == 5
+        assert result["closed_trades"] == 1
+
+    def test_fallback_window_is_wider_than_its_values(
+        self, performance_portfolio_db_path: str
+    ):
+        """Characterization test: NOT an endorsement of this behaviour.
+
+        With live state unavailable, the reported window runs to today while
+        total_pnl is measured between snapshots (2026-01-15 -> 2026-04-04).
+        In get_portfolio_performance the fallback does:
+
+            resolved_end = end_date or today          # already truthy
+            ...
+            resolved_end = resolved_end or row["e"]   # so never applied
+
+        so spy_return and cagr span 2026-01-15 -> today while total_pnl_pct
+        spans 2026-01-15 -> 2026-04-04. alpha subtracts two different periods.
+        Production normally has live state and is unaffected; this bites the
+        degraded path. Pinned here so a fix visibly changes this test rather
+        than passing unnoticed.
+        """
+        conn = sqlite3.connect(performance_portfolio_db_path)
+        conn.row_factory = sqlite3.Row
+        result = get_portfolio_performance(conn)
+        conn.close()
+
+        assert result["end_date"] == FROZEN_TODAY
+        assert result["total_pnl_pct"] == 12.5  # measured only to 2026-04-04
+        # SPY measured over the wider window, hence the mismatch:
+        assert result["spy_return"] == 11.0
+        assert result["alpha"] == 1.5
 
     def test_empty_table_returns_nulls(self, tmp_path):
         db_file = tmp_path / "empty_perf.db"
@@ -94,7 +178,9 @@ class TestGetPortfolioSnapshots:
         assert len(result) == 4
         assert result[0]["snapshot_date"] == "2026-01-15"
         assert result[0]["portfolio_value"] == 100000.00
-        assert result[0]["spy_value"] == 0.0  # sp500_return_pct for first snapshot
+        # spy_value is the SPY CLOSE PRICE for chart overlay, not the snapshot's
+        # sp500_return_pct column it used to read (which was 0.0 on day one).
+        assert result[0]["spy_value"] == SPY_PRICES["2026-01-15"]
         assert result[-1]["snapshot_date"] == "2026-04-04"
         assert result[-1]["portfolio_value"] == 112500.00
 
@@ -344,7 +430,7 @@ class TestPerformanceEndpoint:
         assert len(data["snapshots"]) == 4
         assert data["snapshots"][0]["snapshot_date"] == "2026-01-15"
         assert data["snapshots"][0]["portfolio_value"] == 100000.00
-        assert data["snapshots"][0]["spy_value"] == 0.0
+        assert data["snapshots"][0]["spy_value"] == SPY_PRICES["2026-01-15"]
 
     def test_portfolio_summary_fields(
         self, client: TestClient, performance_portfolio_db_path: str,
@@ -360,8 +446,10 @@ class TestPerformanceEndpoint:
         assert summary["spy_return"] is not None
         assert summary["alpha"] is not None
         assert summary["start_date"] == "2026-01-15"
-        assert summary["end_date"] == "2026-04-04"
-        assert summary["total_trades"] == 6
+        assert summary["end_date"] == FROZEN_TODAY
+        # Live count from sim_positions (5), not the snapshot column (6) --
+        # same post-9ca97e3 change as TestGetPortfolioPerformance asserts.
+        assert summary["total_trades"] == 5
 
     def test_prediction_accuracy_fields(
         self, client: TestClient, performance_portfolio_db_path: str,
