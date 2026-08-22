@@ -24,6 +24,7 @@ const mockHealthData: HealthResponse = {
   alerts_error: null,
   vps_metrics: { cpu_percent: 12.5, memory_percent: 45.2, disk_percent: 62.0 },
   vps_metrics_error: null,
+  db_freshness: null,
 }
 
 describe("Health tab components integration", () => {
