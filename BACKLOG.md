@@ -3,6 +3,9 @@
 ## Urgent
 > Broken or misleading — must fix before daily use
 
+- **Fix alpha comparing two different time windows (degraded path)** — in `get_portfolio_performance`, the live-state-unavailable fallback does `resolved_end = end_date or today` and then `resolved_end = resolved_end or row["e"]`, which never applies because `resolved_end` is already truthy. So `total_pnl_pct` is measured between snapshots (e.g. 2026-01-15 → 2026-04-04) while `spy_return` and `cagr` span 2026-01-15 → today. `alpha = total_pnl_pct - spy_return` therefore subtracts two different periods, and the header reads "through today" over months-old data. Only fires when live state is unavailable; the normal path is unaffected. Pinned by `test_fallback_window_is_wider_than_its_values` — that test will flip when this is fixed. Recommended fix: report the window actually measured (`resolved_end = row["e"]`), which also surfaces staleness instead of hiding it. Needs a call on which semantic is intended before changing money math.
+  - AC: In the fallback path, `spy_return`, `cagr` and `total_pnl_pct` all span the same start/end dates, and `end_date` reflects the last date with data.
+
 - **Fix current price on Holdings tab** — `peak_price` used as proxy for `current_price` shows 0% P&L for all positions. Need to fetch live/last-close prices (either via API enrichment at query time, or a `current_price` column populated by the pipeline).
   - AC: Every open position shows accurate unrealized P&L based on latest available price.
 
