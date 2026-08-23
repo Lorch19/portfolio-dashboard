@@ -490,8 +490,18 @@ def get_portfolio_performance(
             params,
         ).fetchone()
         if row and row["s"]:
-            resolved_start = resolved_start or row["s"]
-            resolved_end = resolved_end or row["e"]
+            # Report the window the values actually come from. start_value and
+            # end_value are read at exactly row["s"] and row["e"] below, so the
+            # reported window must be those dates -- otherwise spy_return and
+            # cagr span a different period than total_pnl_pct, and alpha
+            # (total_pnl_pct - spy_return) subtracts two different periods.
+            #
+            # This previously read `resolved_end = resolved_end or row["e"]`,
+            # which never applied: resolved_end is `end_date or today` further
+            # up and is therefore always truthy. So a degraded response showed
+            # months-old values under a window ending today.
+            resolved_start = row["s"]
+            resolved_end = row["e"]
             sv = conn.execute(
                 f"SELECT SUM(total_value) AS v FROM sim_portfolio_snapshots WHERE date = ? AND {where_clause}",
                 (row["s"], *params),

@@ -68,11 +68,10 @@ class TestGetPortfolioPerformance:
         conn.close()
 
         assert result["start_date"] == "2026-01-15"
-        # end_date is "now", not the last snapshot date. Since 9ca97e3 the
-        # window runs to today; with live state unavailable (no
-        # portfolio_db_path here) the VALUES still come from the last snapshot
-        # on or before it. See test_fallback_window_is_wider_than_its_values.
-        assert result["end_date"] == FROZEN_TODAY
+        # The reported window is the window the values came from. With live
+        # state unavailable those are the first and last snapshots, so the
+        # window ends 2026-04-04, NOT today.
+        assert result["end_date"] == "2026-04-04"
         # P&L: 112500 - 100000 = 12500
         assert result["total_pnl"] == 12500.00
         # P&L %: (12500 / 100000) * 100 = 12.5
@@ -86,12 +85,13 @@ class TestGetPortfolioPerformance:
         result = get_portfolio_performance(conn)
         conn.close()
 
-        # Since 9ca97e3 SPY comes from the price series, not the snapshot's
-        # stored sp500_return_pct column: (555 - 500) / 500 * 100 = 11.0
-        assert result["spy_return"] == 11.0
-        # alpha = portfolio return - SPY return = 12.5 - 11.0
+        # SPY comes from the price series, not the snapshot's stored
+        # sp500_return_pct column, and spans the same window as the P&L:
+        # (550 - 500) / 500 * 100 = 10.0 over [2026-01-15, 2026-04-04]
+        assert result["spy_return"] == 10.0
+        # alpha = portfolio return - SPY return = 12.5 - 10.0
         assert result["alpha"] is not None
-        assert result["alpha"] == 1.5
+        assert result["alpha"] == 2.5
 
     def test_returns_total_trades(self, performance_portfolio_db_path: str):
         conn = sqlite3.connect(performance_portfolio_db_path)
@@ -105,35 +105,46 @@ class TestGetPortfolioPerformance:
         assert result["total_trades"] == 5
         assert result["closed_trades"] == 1
 
-    def test_fallback_window_is_wider_than_its_values(
+    def test_fallback_window_matches_the_values_it_reports(
         self, performance_portfolio_db_path: str
     ):
-        """Characterization test: NOT an endorsement of this behaviour.
+        """Regression: alpha must not subtract two different time periods.
 
-        With live state unavailable, the reported window runs to today while
-        total_pnl is measured between snapshots (2026-01-15 -> 2026-04-04).
-        In get_portfolio_performance the fallback does:
+        The fallback used to do `resolved_end = resolved_end or row["e"]`,
+        which never applied because resolved_end is `end_date or today` further
+        up and always truthy. So total_pnl_pct spanned 2026-01-15 -> 2026-04-04
+        while spy_return and cagr spanned 2026-01-15 -> today, and alpha
+        subtracted one from the other. A degraded response also showed
+        months-old values under a window labelled "today".
 
-            resolved_end = end_date or today          # already truthy
-            ...
-            resolved_end = resolved_end or row["e"]   # so never applied
-
-        so spy_return and cagr span 2026-01-15 -> today while total_pnl_pct
-        spans 2026-01-15 -> 2026-04-04. alpha subtracts two different periods.
-        Production normally has live state and is unaffected; this bites the
-        degraded path. Pinned here so a fix visibly changes this test rather
-        than passing unnoticed.
+        The guard that matters is the relationship, not the constants: the
+        reported window must be the window the values were read from.
         """
         conn = sqlite3.connect(performance_portfolio_db_path)
         conn.row_factory = sqlite3.Row
         result = get_portfolio_performance(conn)
         conn.close()
 
-        assert result["end_date"] == FROZEN_TODAY
-        assert result["total_pnl_pct"] == 12.5  # measured only to 2026-04-04
-        # SPY measured over the wider window, hence the mismatch:
-        assert result["spy_return"] == 11.0
-        assert result["alpha"] == 1.5
+        # The window is the data's range, not "now".
+        assert result["start_date"] == "2026-01-15"
+        assert result["end_date"] == "2026-04-04"
+        assert result["end_date"] != FROZEN_TODAY
+
+        # P&L and SPY are now measured over that same window, so alpha is a
+        # like-for-like difference.
+        assert result["total_pnl_pct"] == 12.5
+        assert result["spy_return"] == 10.0
+        assert result["alpha"] == round(result["total_pnl_pct"] - result["spy_return"], 2)
+
+        # SPY over the window the values actually cover -- had the window still
+        # run to FROZEN_TODAY, this would read 11.0 off the 2026-04-10 price.
+        window_prices = {d: p for d, p in SPY_PRICES.items() if d <= result["end_date"]}
+        last = max(window_prices)
+        expected_spy = round(
+            (window_prices[last] - SPY_PRICES[result["start_date"]])
+            / SPY_PRICES[result["start_date"]] * 100, 2
+        )
+        assert result["spy_return"] == expected_spy
 
     def test_empty_table_returns_nulls(self, tmp_path):
         db_file = tmp_path / "empty_perf.db"
@@ -446,7 +457,7 @@ class TestPerformanceEndpoint:
         assert summary["spy_return"] is not None
         assert summary["alpha"] is not None
         assert summary["start_date"] == "2026-01-15"
-        assert summary["end_date"] == FROZEN_TODAY
+        assert summary["end_date"] == "2026-04-04"
         # Live count from sim_positions (5), not the snapshot column (6) --
         # same post-9ca97e3 change as TestGetPortfolioPerformance asserts.
         assert summary["total_trades"] == 5
